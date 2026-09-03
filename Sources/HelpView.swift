@@ -1,10 +1,24 @@
 import SwiftUI
 
-/// The in-app guide, rendered from the bundled `README.md`.
+/// The in-app guide and release notes, rendered from the bundled `README.md` and
+/// `CHANGELOG.md` — the same files the repository publishes, so there's nothing to
+/// keep in sync by hand.
 struct HelpView: View {
-    @State private var document = HelpDocument()
+    enum Page: String, CaseIterable, Identifiable {
+        case guide
+        case releaseNotes
+
+        var id: String { rawValue }
+        var title: String { self == .guide ? "Guide" : "Release Notes" }
+        var resource: String { self == .guide ? "README" : "CHANGELOG" }
+    }
+
+    @State private var page = Page.guide
+    @State private var documents: [Page: HelpDocument] = [:]
     @State private var loadFailed = false
     @State private var selectedSection: String?
+
+    private var document: HelpDocument { documents[page] ?? HelpDocument() }
 
     var body: some View {
         NavigationSplitView {
@@ -15,19 +29,30 @@ struct HelpView: View {
                 ContentUnavailableView(
                     "Guide not found",
                     systemImage: "questionmark.circle",
-                    description: Text("README.md is missing from the app bundle. Rebuild with ./build.sh to include it.")
+                    description: Text("\(page.resource).md is missing from the app bundle. Rebuild with ./build.sh to include it.")
                 )
             } else {
                 body(of: document)
             }
         }
         .onAppear(perform: load)
+        .onChange(of: page) { _, _ in selectedSection = nil }
     }
 
     // MARK: - Contents list
 
     private var contents: some View {
         List(selection: $selectedSection) {
+            Section {
+                Picker("", selection: $page) {
+                    ForEach(Page.allCases) { page in
+                        Text(page.title).tag(page)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 8, trailing: 4))
+            }
             Section("Contents") {
                 ForEach(document.sections, id: \.id) { section in
                     Text(section.title)
@@ -128,12 +153,12 @@ struct HelpView: View {
     }
 
     private func load() {
-        guard let url = Bundle.main.url(forResource: "README", withExtension: "md"),
-              let text = try? String(contentsOf: url, encoding: .utf8)
-        else {
-            loadFailed = true
-            return
+        for page in Page.allCases {
+            guard let url = Bundle.main.url(forResource: page.resource, withExtension: "md"),
+                  let text = try? String(contentsOf: url, encoding: .utf8)
+            else { continue }
+            documents[page] = HelpDocument.parse(text)
         }
-        document = HelpDocument.parse(text)
+        loadFailed = documents[.guide] == nil
     }
 }

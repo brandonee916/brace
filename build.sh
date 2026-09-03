@@ -12,6 +12,11 @@ APP_NAME="Claude MCP Manager"
 BUNDLE_ID="com.brandonee.claude-mcp-manager"
 DEST_DIR="build"
 
+# The newest heading in CHANGELOG.md is the version, so releasing means editing
+# one file rather than remembering to bump a number in here as well.
+VERSION="$(sed -n 's/^## \([0-9][0-9.]*\).*/\1/p' CHANGELOG.md | head -1)"
+VERSION="${VERSION:-1.0.0}"
+
 if ! command -v swiftc >/dev/null 2>&1; then
   echo "error: swiftc not found. Install the Xcode Command Line Tools with:" >&2
   echo "         xcode-select --install" >&2
@@ -25,7 +30,7 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 BUNDLE="$STAGE/$APP_NAME.app"
 
-echo "Building $APP_NAME…"
+echo "Building $APP_NAME $VERSION…"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 
 swiftc \
@@ -46,8 +51,8 @@ cat > "$BUNDLE/Contents/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key><string>${APP_NAME}</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+    <key>CFBundleVersion</key><string>${VERSION}</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>Local utility. Edits your own Claude Desktop config.</string>
@@ -62,6 +67,7 @@ fi
 # The in-app guide renders this file directly, so the README is the single source
 # of truth rather than something the app duplicates and lets drift.
 cp README.md "$BUNDLE/Contents/Resources/README.md"
+cp CHANGELOG.md "$BUNDLE/Contents/Resources/CHANGELOG.md"
 
 # Ad-hoc signature so macOS treats it as a normal locally built app.
 codesign --force --sign - "$BUNDLE"

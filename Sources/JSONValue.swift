@@ -7,7 +7,7 @@ import Foundation
 /// file, faithful round-tripping matters more than convenience: numbers keep
 /// their original text, object keys keep their original order, and untouched
 /// sections come back out byte-identical.
-indirect enum JSONValue {
+indirect enum JSONValue: Sendable {
     case null
     case bool(Bool)
     case number(String)

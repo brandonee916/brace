@@ -5,7 +5,9 @@ to count brackets in `claude_desktop_config.json` again.
 
 This file is also the app's built-in guide: the app renders it directly, so there's
 only one copy to keep current. Open it from the **?** button in the toolbar, from
-**Help → Claude MCP Manager Help**, or with **⌘?**.
+**Help → Claude MCP Manager Help**, or with **⌘?**. `CHANGELOG.md` appears there
+too, under **Release Notes** — and `build.sh` reads the app's version number out of
+its newest heading, so releasing means editing one file.
 
 ## Build and run
 
@@ -61,6 +63,15 @@ you can see what gets written without ever typing it.
 **Turn servers off without deleting them.** The switch lifts a server out of
 `claude_desktop_config.json` into a sidecar file, so Claude stops loading it while
 the full definition — env vars included — waits intact for you to switch it back on.
+
+**Test a server before trusting it.** **Test Connection** launches it exactly the
+way Claude Desktop would — same sparse environment — and completes an MCP handshake,
+then reports which of three things happened: it wouldn't start (your config is
+wrong, here's the output), it started and answered (you're good, here's what it
+calls itself and how many tools it offers), or it answered but reported trouble
+reaching something downstream. That last case is shown as information rather than
+an error, because a perfectly configured server still can't reach a controller
+you're not on the network with.
 
 **Catch the mistakes that actually bite.** A dot in the sidebar shows each server's
 state — green is fine, amber is worth checking, red is broken, grey is disabled —
@@ -132,6 +143,7 @@ registry only fills in form fields for you to review.
 | `Sources/JSONLenient.swift` | Cleans up pasted snippets (comments, fences, stray commas). |
 | `Sources/CommandResolver.swift` | Finds every copy of a command, with versions. |
 | `Sources/RegistryClient.swift` | Talks to the MCP registry and maps entries to servers. |
+| `Sources/ServerTester.swift` | Launches a server and completes an MCP handshake. |
 | `Sources/MCPServer.swift` | The server model and its JSON mapping. |
 | `Sources/ConfigStore.swift` | Loading, saving, backups, import, disable sidecar. |
 | `Sources/Validation.swift` | The checks behind the sidebar dots. |
@@ -140,6 +152,7 @@ registry only fills in form fields for you to review.
 | `Sources/ImportSheet.swift` | Paste-a-snippet import. |
 | `Sources/BackupsSheet.swift` | The backup manager. |
 | `Sources/RegistrySheet.swift` | Searching and previewing registry entries. |
+| `Sources/TestSheet.swift` | Reporting what a test found. |
 | `Sources/CommandPickerSheet.swift` | Picking between installed versions of a command. |
 | `Sources/HelpDocument.swift` | Markdown parser for this guide. |
 | `Sources/HelpView.swift` | The Help window that renders it. |

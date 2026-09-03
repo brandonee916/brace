@@ -48,6 +48,15 @@ struct ServerDetailView: View {
     @State private var revealedKeys: Set<UUID> = []
     @State private var showsJSON = false
     @State private var showsCommandPicker = false
+    @State private var showsTest = false
+
+    /// Testing needs something to launch or connect to.
+    private var canTest: Bool {
+        switch server.kind {
+        case .local: return !server.command.trimmingCharacters(in: .whitespaces).isEmpty
+        case .remote: return !server.url.trimmingCharacters(in: .whitespaces).isEmpty
+        }
+    }
 
     /// The program name without its folder, for the "Find…" picker.
     private var commandBaseName: String {
@@ -65,6 +74,23 @@ struct ServerDetailView: View {
                         IssueRow(issue: issue) { action in apply(action) }
                     }
                 }
+            }
+
+            Section {
+                HStack(spacing: 10) {
+                    Button {
+                        showsTest = true
+                    } label: {
+                        Label("Test Connection", systemImage: "play.circle")
+                    }
+                    .disabled(!canTest)
+                    Text("Launches the server the way Claude Desktop would and checks that it answers.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
             }
 
             Section("General") {
@@ -123,6 +149,9 @@ struct ServerDetailView: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $showsTest) {
+            TestSheet(server: server)
+        }
         .sheet(isPresented: $showsCommandPicker) {
             CommandPickerSheet(
                 commandName: commandBaseName,

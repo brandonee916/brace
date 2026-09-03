@@ -2,7 +2,7 @@ import Foundation
 
 /// One row in a server's args list. Wrapped in a type with a stable identity so
 /// SwiftUI's editable list doesn't lose focus while you're typing.
-struct ArgItem: Identifiable, Equatable {
+struct ArgItem: Identifiable, Equatable, Sendable {
     let id = UUID()
     var value: String
 
@@ -12,7 +12,7 @@ struct ArgItem: Identifiable, Equatable {
 }
 
 /// One environment variable or HTTP header row.
-struct PairItem: Identifiable, Equatable {
+struct PairItem: Identifiable, Equatable, Sendable {
     let id = UUID()
     var key: String
     var value: String
@@ -44,7 +44,7 @@ struct PairItem: Identifiable, Equatable {
     }
 }
 
-enum ServerKind: String, CaseIterable, Identifiable {
+enum ServerKind: String, CaseIterable, Identifiable, Sendable {
     case local
     case remote
 
@@ -65,7 +65,7 @@ enum ServerKind: String, CaseIterable, Identifiable {
     }
 }
 
-struct MCPServer: Identifiable, Equatable {
+struct MCPServer: Identifiable, Equatable, Sendable {
     let id = UUID()
     var name: String = ""
     var kind: ServerKind = .local

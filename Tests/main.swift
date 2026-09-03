@@ -308,6 +308,27 @@ func helpSuite() {
     } else {
         print("SKIP  README suite — not run from the project directory")
     }
+
+    // The release notes render through the same parser and ship in the bundle.
+    let changelog = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("CHANGELOG.md")
+    if let text = try? String(contentsOf: changelog, encoding: .utf8) {
+        let notes = HelpDocument.parse(text)
+        check("CHANGELOG parses into blocks", notes.blocks.count > 5, "\(notes.blocks.count) blocks")
+        check("CHANGELOG has a version heading", notes.sections.contains { $0.title.contains("1.0.0") },
+              notes.sections.map(\.title).joined(separator: ", "))
+        check("release notes have no stray markers", !notes.blocks.contains {
+            if case .paragraph(let t) = $0 { return String(t.characters).contains("**") }
+            return false
+        })
+
+        // build.sh reads the version out of this file, so the format has to hold.
+        let firstHeading = text.components(separatedBy: .newlines).first { $0.hasPrefix("## ") } ?? ""
+        let version = firstHeading.dropFirst(3).prefix { $0.isNumber || $0 == "." }
+        check("version is extractable from the top heading", version.contains("."), String(version))
+    } else {
+        print("SKIP  CHANGELOG suite — not run from the project directory")
+    }
 }
 
 func modelSuite() {

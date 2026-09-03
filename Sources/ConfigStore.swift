@@ -19,8 +19,19 @@ final class ConfigStore: ObservableObject {
     /// themselves. New servers go on the end; everything else stays put.
     private var fileOrder: [String] = []
 
-    nonisolated static let claudeSupportDirectory = URL(fileURLWithPath: NSHomeDirectory())
-        .appendingPathComponent("Library/Application Support/Claude")
+    /// Where Claude Desktop keeps its configuration.
+    ///
+    /// `CLAUDE_MCP_MANAGER_CONFIG_DIR` redirects this, which is how the test suite
+    /// and the documentation screenshots run against sample data instead of a real
+    /// config. It only changes which directory is edited; nothing else.
+    nonisolated static var claudeSupportDirectory: URL {
+        if let override = ProcessInfo.processInfo.environment["CLAUDE_MCP_MANAGER_CONFIG_DIR"],
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
+        }
+        return URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support/Claude")
+    }
 
     let configURL: URL
 

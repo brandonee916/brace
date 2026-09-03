@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "/usr/bin/python3",
+      "args": ["-m", "mcp_server_filesystem", "/Users/you/Documents"]
+    },
+    "github": {
+      "command": "/usr/bin/python3",
+      "args": ["-m", "mcp_server_github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_exampletokenexampletoken0000" }
+    },
+    "postgres": {
+      "command": "uvx",
+      "args": ["postgres-mcp@latest"],
+      "env": {
+        "DATABASE_URL": "postgresql://localhost:5432/example",
+        "PGSSLMODE": "require"
+      }
+    },
+    "weather": {
+      "type": "http",
+      "url": "https://weather.example.com/mcp"
+    }
+  },
+  "preferences": {}
+}

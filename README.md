@@ -5,6 +5,8 @@
 A native macOS app for managing Claude Desktop's MCP servers, so you never have
 to count brackets in `claude_desktop_config.json` again.
 
+![The app editing a server, with its arguments and environment variables](docs/server-editing.png)
+
 This file is also the app's built-in guide: the app renders it directly, so there's
 only one copy to keep current. Open it from the **?** button in the toolbar, from
 **Help → Claude MCP Manager Help**, or with **⌘?**. `CHANGELOG.md` appears there
@@ -36,6 +38,8 @@ server's author**, not generated from the code, so they go stale — the app che
 what PyPI or npm actually ships and warns you when the entry is behind. And secret
 values are never filled in, only named and masked, so you enter them yourself.
 
+![Searching the MCP registry, with a warning that the entry is behind the published version](docs/registry.png)
+
 **Add servers by pasting.** Most MCP servers document themselves as a block of
 JSON in a README. Click **Paste JSON** — the box fills itself from your clipboard
 if a snippet is already there — and the app merges it into your config. It accepts
@@ -50,6 +54,8 @@ complaining, and tells you what it changed:
 - trailing commas after the last entry
 - unquoted keys and single-quoted strings from JavaScript-style snippets
 - surrounding prose like "Add this to your config:"
+
+![Pasting a snippet with a comment and a trailing comma, cleaned up automatically](docs/paste-json.png)
 
 **Tidy Up** rewrites the box as clean, formatted JSON so you can see what it read.
 Genuinely broken input still gets an error with the exact line and column — and
@@ -90,6 +96,8 @@ button to fix it. What it flags:
 - A command that doesn't exist or isn't executable.
 - Duplicate server names, which would silently drop a server.
 - Empty or duplicated environment variables, and malformed URLs.
+
+![A server flagged for using a bare command name, with a one-click fix](docs/checks.png)
 
 **Find…** next to the command field opens that same list any time, so you can switch
 between installed versions without an error having to appear first.

@@ -1,5 +1,13 @@
 # Release Notes
 
+## 1.2.2 — 2026-09-03
+
+- Screenshots in the README, so the project page shows what the app looks like.
+  They're taken against an invented sample configuration, never a real one.
+- `CLAUDE_MCP_MANAGER_CONFIG_DIR` points the app at a different configuration
+  directory. It exists so the documentation screenshots and the test suite can run
+  against sample data; it changes nothing else.
+
 ## 1.2.1 — 2026-09-03
 
 A review pass over every screen, and the fixes it turned up.

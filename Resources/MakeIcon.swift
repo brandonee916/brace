@@ -176,7 +176,7 @@ func drawSocialCard(into context: CGContext, width: Double, height: Double) {
 
     // The mark, drawn at the same proportions as the icon.
     let markSize = height * 0.52
-    let markCentre = CGPoint(x: width * 0.215, y: height * 0.5)
+    let markCentre = CGPoint(x: width * 0.235, y: height * 0.5)
     let braceSize = markSize * 0.72
     var braceFont = NSFont.systemFont(ofSize: braceSize, weight: .bold)
     if let rounded = braceFont.fontDescriptor.withDesign(.rounded) {
@@ -211,12 +211,11 @@ func drawSocialCard(into context: CGContext, width: Double, height: Double) {
             .foregroundColor: NSColor(cgColor: color(255, 255, 255, alpha))!,
         ]
         NSAttributedString(string: text, attributes: attributes)
-            .draw(at: CGPoint(x: width * 0.38, y: y))
+            .draw(at: CGPoint(x: width * 0.40, y: y))
     }
 
-    draw("Claude MCP Manager", size: 74, weight: .semibold, alpha: 1, y: height * 0.545)
-    draw("Edit Claude Desktop's MCP servers", size: 38, weight: .regular, alpha: 0.86, y: height * 0.42)
-    draw("without counting brackets.", size: 38, weight: .regular, alpha: 0.86, y: height * 0.335)
+    draw("Brace", size: 116, weight: .semibold, alpha: 1, y: height * 0.505)
+    draw("MCP Manager for Claude Desktop", size: 40, weight: .regular, alpha: 0.88, y: height * 0.395)
 
     NSGraphicsContext.restoreGraphicsState()
 }

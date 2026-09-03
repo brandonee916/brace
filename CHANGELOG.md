@@ -1,5 +1,24 @@
 # Release Notes
 
+## 2.0.0 — 2026-09-03
+
+**The app is now called Brace** — MCP Manager for Claude Desktop.
+
+The old name led with someone else's trademark, which made a third-party tool
+read as an official one. Brace says what the icon already showed: the braces you
+no longer have to count.
+
+- Nothing about how it works has changed.
+- macOS treats this as a new application, because the bundle identifier changed
+  with the name. If you installed the old one, delete `Claude MCP Manager.app`
+  from Applications — otherwise you'll have both. Your Claude Desktop
+  configuration and your backups are untouched either way; they never lived
+  inside the app.
+- Two settings reset to their defaults, since they were stored against the old
+  identifier: how many backups to keep, and when updates were last checked.
+- The environment variable for pointing at a different configuration directory is
+  now `BRACE_CONFIG_DIR`.
+
 ## 1.3.0 — 2026-09-03
 
 - **What's new** now shows every release you skipped, not just the newest one. On

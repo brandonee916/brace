@@ -21,11 +21,11 @@ final class ConfigStore: ObservableObject {
 
     /// Where Claude Desktop keeps its configuration.
     ///
-    /// `CLAUDE_MCP_MANAGER_CONFIG_DIR` redirects this, which is how the test suite
+    /// `BRACE_CONFIG_DIR` redirects this, which is how the test suite
     /// and the documentation screenshots run against sample data instead of a real
     /// config. It only changes which directory is edited; nothing else.
     nonisolated static var claudeSupportDirectory: URL {
-        if let override = ProcessInfo.processInfo.environment["CLAUDE_MCP_MANAGER_CONFIG_DIR"],
+        if let override = ProcessInfo.processInfo.environment["BRACE_CONFIG_DIR"],
            !override.isEmpty {
             return URL(fileURLWithPath: (override as NSString).expandingTildeInPath)
         }
@@ -144,7 +144,7 @@ final class ConfigStore: ObservableObject {
                 try? FileManager.default.removeItem(at: disabledURL)
             } else {
                 let sidecar = JSONValue.object([
-                    (key: "_comment", value: .string("Servers turned off in Claude MCP Manager. Claude Desktop never reads this file.")),
+                    (key: "_comment", value: .string("Servers turned off in Brace. Claude Desktop never reads this file.")),
                     (key: "mcpServers", value: .object(disabledPairs)),
                 ])
                 try writeAtomically(sidecar.serialized() + "\n", to: disabledURL)

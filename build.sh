@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds "Claude MCP Manager.app" using the Swift compiler that ships with Xcode
+# Builds "Brace.app" using the Swift compiler that ships with Xcode
 # Command Line Tools. No Xcode project, no package manager, no network needed.
 #
 #   ./build.sh              build into ./build
@@ -8,8 +8,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-APP_NAME="Claude MCP Manager"
-BUNDLE_ID="com.brandonee.claude-mcp-manager"
+APP_NAME="Brace"
+BUNDLE_ID="com.brandonee.brace"
 DEST_DIR="build"
 
 # The newest heading in CHANGELOG.md is the version, so releasing means editing
@@ -37,7 +37,7 @@ swiftc \
   -parse-as-library \
   -O \
   -target arm64-apple-macos14.0 \
-  -o "$BUNDLE/Contents/MacOS/ClaudeMCPManager" \
+  -o "$BUNDLE/Contents/MacOS/Brace" \
   Sources/*.swift
 
 cat > "$BUNDLE/Contents/Info.plist" <<PLIST
@@ -45,7 +45,7 @@ cat > "$BUNDLE/Contents/Info.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleExecutable</key><string>ClaudeMCPManager</string>
+    <key>CFBundleExecutable</key><string>Brace</string>
     <key>CFBundleIdentifier</key><string>${BUNDLE_ID}</string>
     <key>CFBundleName</key><string>${APP_NAME}</string>
     <key>CFBundleDisplayName</key><string>${APP_NAME}</string>

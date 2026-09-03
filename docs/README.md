@@ -6,10 +6,10 @@ the servers and credentials shown here are invented.
 To reproduce, point the app at a directory holding that file:
 
 ```bash
-CLAUDE_MCP_MANAGER_CONFIG_DIR=/tmp/demo open -n "build/Claude MCP Manager.app"
+BRACE_CONFIG_DIR=/tmp/demo open -n "build/Brace.app"
 ```
 
-`CLAUDE_MCP_MANAGER_CONFIG_DIR` only changes which directory the app reads and
+`BRACE_CONFIG_DIR` only changes which directory the app reads and
 writes; everything else behaves normally.
 
 ## Social preview

@@ -26,7 +26,7 @@ enum UpdateError: LocalizedError {
 }
 
 enum UpdateChecker {
-    static let repository = "brandonee916/claude-mcp-manager"
+    static let repository = "brandonee916/brace"
 
     static var repositoryURL: URL {
         URL(string: "https://github.com/\(repository)")!

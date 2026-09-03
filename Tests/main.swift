@@ -708,7 +708,7 @@ func updateSuite() {
     check("your own version is never included", !shown(runningOn: "1.1.0").contains("1.1.0"))
 
     check("repository url", UpdateChecker.repositoryURL.absoluteString
-          == "https://github.com/brandonee916/claude-mcp-manager")
+          == "https://github.com/brandonee916/brace")
 
     // Release notes are Markdown, rendered by the same parser as the guide.
     let notes = HelpDocument.parse("""

@@ -18,14 +18,14 @@ struct AboutView: View {
                 }
 
                 VStack(spacing: 3) {
-                    Text("Claude MCP Manager")
+                    Text("Brace")
                         .font(.title2.weight(.semibold))
                     Text("Version \(version)")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }
 
-                Text("An editor for Claude Desktop's MCP servers.")
+                Text("MCP Manager for Claude Desktop")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

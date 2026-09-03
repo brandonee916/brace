@@ -1,15 +1,16 @@
-# Claude MCP Manager
+# Brace
 
 <img src="Resources/AppIcon.png" alt="" width="128" align="right">
 
-A native macOS app for managing Claude Desktop's MCP servers, so you never have
-to count brackets in `claude_desktop_config.json` again.
+**MCP Manager for Claude Desktop.** A native macOS app for managing your MCP
+servers, so you never have to count brackets in `claude_desktop_config.json`
+again.
 
 ![The app editing a server, with its arguments and environment variables](docs/server-editing.png)
 
 This file is also the app's built-in guide: the app renders it directly, so there's
 only one copy to keep current. Open it from the **?** button in the toolbar, from
-**Help → Claude MCP Manager Help**, or with **⌘?**. `CHANGELOG.md` appears there
+**Help → Brace Help**, or with **⌘?**. `CHANGELOG.md` appears there
 too, under **Release Notes** — and `build.sh` reads the app's version number out of
 its newest heading, so releasing means editing one file.
 
@@ -22,7 +23,7 @@ package manager, no network access.
 ./build.sh --install
 ```
 
-That builds `Claude MCP Manager.app` and copies it into `/Applications`. Drop the
+That builds `Brace.app` and copies it into `/Applications`. Drop the
 `--install` to leave it in `./build` instead.
 
 ## What it does

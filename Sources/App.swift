@@ -12,20 +12,20 @@ struct ClaudeMCPManagerApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {}
             CommandGroup(replacing: .appInfo) {
-                OpenWindowButton(title: "About Claude MCP Manager", windowID: AboutWindow.id)
+                OpenWindowButton(title: "About Brace", windowID: AboutWindow.id)
             }
             CommandGroup(replacing: .help) {
-                OpenWindowButton(title: "Claude MCP Manager Help", windowID: HelpWindow.id)
+                OpenWindowButton(title: "Brace Help", windowID: HelpWindow.id)
                     .keyboardShortcut("?", modifiers: .command)
             }
         }
 
-        Window("Claude MCP Manager Help", id: HelpWindow.id) {
+        Window("Brace Help", id: HelpWindow.id) {
             HelpView()
         }
         .defaultSize(width: 900, height: 680)
 
-        Window("About Claude MCP Manager", id: AboutWindow.id) {
+        Window("About Brace", id: AboutWindow.id) {
             AboutView()
         }
         .windowResizability(.contentSize)

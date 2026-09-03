@@ -139,7 +139,7 @@ enum ServerTester {
             try? input.fileHandleForWriting.write(contentsOf: data)
         }
 
-        send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Claude MCP Manager","version":"1.0"}}}"#)
+        send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Brace","version":"1.0"}}}"#)
 
         // Read stdout through a readability handler rather than polling.
         // Polling meant a timed-out read left a thread still blocked on the pipe;
@@ -342,7 +342,7 @@ enum ServerTester {
         for pair in server.headers where !pair.key.isEmpty {
             request.setValue(pair.value, forHTTPHeaderField: pair.key)
         }
-        request.httpBody = Data(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Claude MCP Manager","version":"1.0"}}}"#.utf8)
+        request.httpBody = Data(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Brace","version":"1.0"}}}"#.utf8)
 
         do {
             onProgress(TestProgress(stage: "Sending the MCP handshake…", lastLine: nil, elapsed: Date().timeIntervalSince(started)))

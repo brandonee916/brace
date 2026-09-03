@@ -1,5 +1,22 @@
 # Release Notes
 
+## 2.1.2 — 2026-09-03
+
+A pass over the remaining windows, checking each one when it is empty and when
+it is full.
+
+- **A failed test now tells you why.** It reported the exit code and nothing else
+  whenever the server's output didn't happen to contain the word error, warning
+  or fail — which is most of the time. A Python server saying "No module named
+  mcp_server_filesystem" produced a completely silent failure. It now falls back
+  to the last few lines of what the server actually printed.
+- The test window sized itself the same whatever it held, so a two-line result
+  sat above a large empty area. It follows its content now.
+- The **Find…** picker showed one result followed by half a dozen empty rows. It
+  is sized to the number of results.
+- Checked and left alone: the backups, registry, help and about windows all fill
+  their space deliberately, with centred placeholders when they are empty.
+
 ## 2.1.1 — 2026-09-03
 
 Fixes the Paste JSON window, which was laid out badly in every state.

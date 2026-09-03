@@ -27,12 +27,15 @@ struct CommandPickerSheet: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                // A List fills whatever it is given, so one result in a fixed sheet
+                // shows one row and six empty ones. Height follows the count.
                 List(candidates, selection: $selection) { candidate in
                     row(for: candidate)
                         .tag(candidate.path)
                 }
                 .listStyle(.inset)
                 .alternatingRowBackgrounds()
+                .frame(height: min(max(Double(candidates.count) * 54 + 12, 66), 320))
             }
 
             HStack {
@@ -54,7 +57,7 @@ struct CommandPickerSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 620, height: 400)
+        .frame(width: 620)
         .onAppear(perform: load)
     }
 

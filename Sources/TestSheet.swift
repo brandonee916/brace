@@ -22,8 +22,6 @@ struct TestSheet: View {
                 outcome(result)
             }
 
-            Spacer(minLength: 0)
-
             HStack {
                 if let result, !result.log.isEmpty {
                     Toggle("Show full output", isOn: $showsLog)
@@ -45,7 +43,10 @@ struct TestSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 620, height: showsLog ? 560 : 400)
+        // Height follows the content: a two-line failure shouldn't sit above 270
+        // points of nothing, and a long log still needs room.
+        .frame(width: 620)
+        .frame(minHeight: 240)
         .onAppear(perform: run)
         .onDisappear { task?.cancel() }
     }

@@ -273,6 +273,10 @@ enum ServerTester {
         }
         let stderr = errorBuffer.value
         finished.log = [stderr, stdout].filter { !$0.isEmpty }.joined(separator: "\n")
+        // A failure with nothing to show is the least useful result possible.
+        if finished.downstreamNotes.isEmpty, finished.status != .responded {
+            finished.downstreamNotes = lastLines(in: finished.log)
+        }
         return finished
     }
 
@@ -294,6 +298,19 @@ enum ServerTester {
             return message.count > 110 ? String(message.prefix(110)) + "…" : message
         }
         return nil
+    }
+
+    /// The tail of whatever the server printed.
+    ///
+    /// Used when a server fails without saying anything that looks like an error —
+    /// "No module named x" matches no keyword, and reporting an exit code with no
+    /// explanation is useless to whoever has to fix it.
+    static func lastLines(in text: String, count: Int = 6) -> [String] {
+        let lines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.count > 1 }
+        return Array(lines.suffix(count))
     }
 
     /// Error and warning lines worth showing, deduplicated.

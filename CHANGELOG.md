@@ -1,5 +1,17 @@
 # Release Notes
 
+## 2.1.1 — 2026-09-03
+
+Fixes the Paste JSON window, which was laid out badly in every state.
+
+- Empty, it left a large gap between the box and the buttons. With several
+  servers, the list overflowed and slid underneath them. The status area now
+  sizes itself to its content and only scrolls once it genuinely overruns, and
+  the text box takes whatever room is left over.
+- Safety warnings moved above the server list. With four servers pasted at once
+  the risky one can be last, and a warning you have to scroll to find is a
+  warning nobody reads.
+
 ## 2.1.0 — 2026-09-03
 
 Two ways your work could have been lost, both now closed.

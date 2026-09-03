@@ -27,16 +27,26 @@ struct ImportSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // The editor takes whatever room the status area isn't using, so an
+            // empty dialog is all editor rather than editor plus a void.
             TextEditor(text: $text)
                 .font(.system(.callout, design: .monospaced))
-                .frame(minHeight: 150)
+                .frame(minHeight: 140, maxHeight: .infinity)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
 
-            ScrollView {
-                status.frame(maxWidth: .infinity, alignment: .leading)
+            if hasStatus {
+                // A ScrollView always claims the height it is offered, so a bare
+                // frame leaves a gap under one short row and overflows under six.
+                // ViewThatFits uses the plain stack while it fits and only falls
+                // back to scrolling when the content genuinely exceeds the cap.
+                ViewThatFits(in: .vertical) {
+                    status.frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollView {
+                        status.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .frame(maxHeight: 240)
             }
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: 260)
 
             HStack {
                 Button("Paste from Clipboard") {
@@ -59,7 +69,7 @@ struct ImportSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 640)
+        .frame(width: 640, height: 520)
         .onAppear(perform: prefillFromClipboard)
         .onChange(of: text) { _, _ in revalidate() }
     }
@@ -80,6 +90,31 @@ struct ImportSheet: View {
                 .foregroundStyle(.green)
                 .font(.callout)
 
+                // Safety warnings go above the list, not inside it. With several
+                // servers the risky one can be last, and a warning you have to
+                // scroll to find is a warning that goes unread.
+                if !flaggedServers.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach(flaggedServers, id: \.name) { server in
+                            ForEach(Validator.safetyIssues(for: server)) { issue in
+                                Label {
+                                    Text("\(server.name): ").fontWeight(.semibold)
+                                        + Text(issue.message)
+                                } icon: {
+                                    Image(systemName: "exclamationmark.shield.fill")
+                                }
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(9)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.orange.opacity(0.12)))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.orange.opacity(0.4)))
+                }
+
                 // A config file names the program Claude will run, so show exactly
                 // what that is before it gets added rather than after.
                 ForEach(servers) { server in
@@ -90,13 +125,6 @@ struct ImportSheet: View {
                             .font(.system(.callout, design: .monospaced))
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                        ForEach(Validator.safetyIssues(for: server)) { issue in
-                            Label(issue.message, systemImage: "exclamationmark.shield.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.top, 1)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(9)
@@ -111,10 +139,18 @@ struct ImportSheet: View {
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
-        } else {
-            // Keeps the dialog from resizing as you type.
-            Text(" ").font(.callout)
         }
+    }
+
+    /// Whether there is anything to show under the editor. Nothing to say means no
+    /// space reserved.
+    private var hasStatus: Bool {
+        errorMessage != nil || !servers.isEmpty
+    }
+
+    /// Servers whose command shape means "run arbitrary code".
+    private var flaggedServers: [MCPServer] {
+        servers.filter { !Validator.safetyIssues(for: $0).isEmpty }
     }
 
     /// What Claude would actually launch, for the preview.

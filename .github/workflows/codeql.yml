@@ -1,0 +1,40 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 9 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    # Brace builds for arm64-apple-macos14.0, so it needs an Apple-silicon runner
+    # with the Xcode toolchain already installed.
+    runs-on: macos-15
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+          # There is no Xcode project or Package.swift for autobuild to find —
+          # the app is compiled by build.sh calling swiftc directly.
+          build-mode: manual
+
+      - name: Build Brace
+        run: ./build.sh
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:swift"

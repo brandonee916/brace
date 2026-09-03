@@ -143,7 +143,9 @@ enum CommandResolver {
         }
 
         if finished.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
+            // Reap it too — a terminated-but-unwaited child stays a zombie, and one
+            // that ignores SIGTERM would otherwise never go away at all.
+            process.endAndReap()
             _ = finished.wait(timeout: .now() + 0.5)
             return nil
         }

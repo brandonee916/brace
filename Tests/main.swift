@@ -572,6 +572,55 @@ func registrySuite() {
 
 // MARK: - Update checking
 
+func reviewSuite() {
+    // Anchors must be unique, or the contents list scrolls to the wrong place.
+    for file in ["README.md", "CHANGELOG.md"] {
+        guard let text = try? String(contentsOfFile: file, encoding: .utf8) else { continue }
+        let doc = HelpDocument.parse(text)
+        let anchors = (0..<doc.blocks.count).map { HelpDocument.anchor($0) }
+        check("\(file) anchors are unique", Set(anchors).count == anchors.count)
+        check("\(file) every contents entry has a matching anchor",
+              doc.sections.allSatisfy { anchors.contains($0.id) },
+              doc.sections.map(\.title).joined(separator: ", "))
+    }
+
+    // Images and links must not reach the page as raw markup.
+    let withImage = HelpDocument.parse("""
+    # Title
+
+    <img src="Resources/AppIcon.png" alt="" width="128" align="right">
+
+    See [LICENSE](LICENSE) and [the site](https://example.com).
+    """)
+    check("an img tag becomes an image block", withImage.blocks.contains {
+        if case .image(let source, let width) = $0 { return source.hasSuffix("AppIcon.png") && width == 128 }
+        return false
+    })
+    check("no raw html reaches a paragraph", !withImage.blocks.contains {
+        if case .paragraph(let t) = $0 { return String(t.characters).contains("<img") }
+        return false
+    })
+    check("link brackets are gone", withImage.blocks.contains {
+        if case .paragraph(let t) = $0 {
+            let s = String(t.characters)
+            return s.contains("See LICENSE and the site.") && !s.contains("[")
+        }
+        return false
+    })
+    check("an absolute link becomes a real link", withImage.blocks.contains {
+        if case .paragraph(let t) = $0 { return t.runs.contains { $0.link != nil } }
+        return false
+    })
+
+    // A registry identifier is somebody else's data, so it must be encoded before
+    // it is interpolated into a URL rather than trusted and force-unwrapped.
+    for identifier in ["ok-pkg", "has space", "emoji😀", "a/../b", "\u{7f}ctrl"] {
+        let encoded = identifier.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)
+        check("\"\(identifier)\" encodes to a usable URL",
+              encoded.flatMap { URL(string: "https://pypi.org/pypi/\($0)/json") } != nil)
+    }
+}
+
 func safetySuite() {
     func server(_ command: String, _ args: [String]) -> MCPServer {
         var s = MCPServer()
@@ -654,6 +703,7 @@ func updateSuite() {
     })
 }
 
+reviewSuite()
 safetySuite()
 updateSuite()
 registrySuite()

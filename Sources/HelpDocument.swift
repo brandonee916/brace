@@ -13,6 +13,7 @@ struct HelpDocument {
         case bullets([AttributedString])
         case code(String)
         case table(header: [AttributedString], rows: [[AttributedString]])
+        case image(source: String, width: Double?)
 
         var id: String {
             switch self {
@@ -21,17 +22,25 @@ struct HelpDocument {
             case .bullets(let items): return "l:\(items.first?.description.prefix(40) ?? "")\(items.count)"
             case .code(let text): return "c:\(text.prefix(40))"
             case .table(let header, let rows): return "t:\(header.map(\.description).joined())\(rows.count)"
+            case .image(let source, _): return "i:\(source)"
             }
         }
     }
 
     var blocks: [Block] = []
 
+    /// A stable anchor for a block, used by the contents list to scroll to it.
+    ///
+    /// Keyed on position rather than on the block's text: two paragraphs sharing
+    /// an opening line would otherwise collide, and a duplicate id inside a
+    /// `ForEach` makes scrolling land in the wrong place with no error.
+    static func anchor(_ index: Int) -> String { "block-\(index)" }
+
     /// Level-2 headings, for the contents list.
     var sections: [(id: String, title: String)] {
-        blocks.compactMap { block in
+        blocks.enumerated().compactMap { index, block in
             if case .heading(let level, _, let plain) = block, level == 2 {
-                return (id: block.id, title: plain)
+                return (id: HelpDocument.anchor(index), title: plain)
             }
             return nil
         }
@@ -53,6 +62,20 @@ struct HelpDocument {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.isEmpty {
+                index += 1
+                continue
+            }
+
+            // Images, written either as Markdown or as an <img> tag.
+            if let image = parseImage(trimmed) {
+                document.blocks.append(image)
+                index += 1
+                continue
+            }
+
+            // A lone HTML tag is layout for GitHub's renderer; it shouldn't appear
+            // as literal text in the app's Help window.
+            if trimmed.hasPrefix("<"), trimmed.hasSuffix(">"), !trimmed.contains(" `") {
                 index += 1
                 continue
             }
@@ -137,6 +160,23 @@ struct HelpDocument {
         return document
     }
 
+    /// Handles `![alt](src)` and `<img src="…" width="…">`.
+    private static func parseImage(_ line: String) -> Block? {
+        if line.hasPrefix("!["), let open = line.firstIndex(of: "("), line.hasSuffix(")") {
+            let source = String(line[line.index(after: open)..<line.index(before: line.endIndex)])
+            return .image(source: source, width: nil)
+        }
+        guard line.hasPrefix("<img") else { return nil }
+        func attribute(_ name: String) -> String? {
+            guard let range = line.range(of: "\(name)=\"") else { return nil }
+            let rest = line[range.upperBound...]
+            guard let end = rest.firstIndex(of: "\"") else { return nil }
+            return String(rest[..<end])
+        }
+        guard let source = attribute("src") else { return nil }
+        return .image(source: source, width: attribute("width").flatMap(Double.init))
+    }
+
     private static func cells(in row: String) -> [AttributedString] {
         var text = row.trimmingCharacters(in: .whitespaces)
         if text.hasPrefix("|") { text.removeFirst() }
@@ -184,6 +224,21 @@ struct HelpDocument {
                 }
             }
 
+            if character == "[", let close = findCharacter("]", in: characters, from: index + 1),
+               close + 1 < characters.count, characters[close + 1] == "(",
+               let end = findCharacter(")", in: characters, from: close + 2) {
+                flushPlain()
+                var run = inline(String(characters[(index + 1)..<close]))
+                let destination = String(characters[(close + 2)..<end])
+                if let url = URL(string: destination), url.scheme != nil {
+                    run.link = url
+                    run.foregroundColor = .accentColor
+                }
+                output.append(run)
+                index = end + 1
+                continue
+            }
+
             if character == "*" {
                 let markerLength = characters[index...].prefix { $0 == "*" }.count
                 let width = min(markerLength, 2)
@@ -204,6 +259,16 @@ struct HelpDocument {
 
         flushPlain()
         return output
+    }
+
+    private static func findCharacter(_ character: Character, in characters: [Character], from start: Int) -> Int? {
+        var index = start
+        while index < characters.count {
+            if characters[index] == character { return index }
+            if characters[index] == "\n" { return nil }
+            index += 1
+        }
+        return nil
     }
 
     /// Finds the next run of exactly `length` copies of `marker`.

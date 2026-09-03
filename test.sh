@@ -6,6 +6,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 BIN="$(mktemp -d)/tests"
-swiftc -O Sources/JSONValue.swift Sources/JSONLenient.swift Sources/MCPServer.swift Sources/CommandResolver.swift Sources/RegistryClient.swift \
+swiftc -O Sources/JSONValue.swift Sources/ProcessTeardown.swift Sources/JSONLenient.swift Sources/MCPServer.swift Sources/CommandResolver.swift Sources/RegistryClient.swift \
        Sources/Validation.swift Sources/ConfigStore.swift Sources/HelpDocument.swift Sources/UpdateChecker.swift Tests/main.swift -o "$BIN"
 "$BIN"

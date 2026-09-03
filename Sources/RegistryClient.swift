@@ -144,13 +144,19 @@ struct RegistryClient {
     /// Registry entries are published by hand and go stale, so this is the check
     /// that catches a manifest describing a version from a year ago.
     static func latestPublishedVersion(of package: RegistryPackage) async -> String? {
+        // The identifier comes from the registry, so it is somebody else's data.
+        // Percent-encode it and never force-unwrap the result: today's Foundation
+        // is lenient about odd URL strings, but the app also runs on macOS 14,
+        // and a nil here would take the whole app down.
+        guard let escaped = package.identifier
+            .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+
         switch package.registryType {
         case "pypi":
-            let url = URL(string: "https://pypi.org/pypi/\(package.identifier)/json")!
+            guard let url = URL(string: "https://pypi.org/pypi/\(escaped)/json") else { return nil }
             return try? await fetchJSON(url)["info"]?["version"]?.stringValue
         case "npm":
-            let escaped = package.identifier.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? package.identifier
-            let url = URL(string: "https://registry.npmjs.org/\(escaped)/latest")!
+            guard let url = URL(string: "https://registry.npmjs.org/\(escaped)/latest") else { return nil }
             return try? await fetchJSON(url)["version"]?.stringValue
         default:
             return nil

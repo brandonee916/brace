@@ -202,7 +202,7 @@ enum ServerTester {
             }
 
             if let rejected = drain() {
-                return finish(process, output, errorBuffer, pending, rejected)
+                return finish(process, (input, output, errors), errorBuffer, pending, rejected)
             }
 
             // Exactly once, and only after initialize is acknowledged.
@@ -231,7 +231,7 @@ enum ServerTester {
             let stderr = errorBuffer.value
             let exited = !process.isRunning
             let status = process.isRunning ? TestResult.Status.noResponse : .wontStart
-            return finish(process, output, errorBuffer, pending, TestResult(
+            return finish(process, (input, output, errors), errorBuffer, pending, TestResult(
                 status: status,
                 headline: exited ? "The server stopped before answering" : "No answer from the server",
                 detail: exited
@@ -242,7 +242,7 @@ enum ServerTester {
         }
 
         let info = result["serverInfo"]
-        return finish(process, output, errorBuffer, pending, TestResult(
+        return finish(process, (input, output, errors), errorBuffer, pending, TestResult(
             status: .responded,
             headline: "The server started and answered",
             detail: "Your configuration works. Anything below is what the server itself reported.",
@@ -256,13 +256,17 @@ enum ServerTester {
 
     private static func finish(
         _ process: Process,
-        _ output: Pipe,
+        _ pipes: (input: Pipe, output: Pipe, errors: Pipe),
         _ errorBuffer: Locked<String>,
         _ stdout: String,
         _ result: TestResult
     ) -> TestResult {
-        output.fileHandleForReading.readabilityHandler = nil
-        if process.isRunning { process.terminate() }
+        // Both handlers must go, not just stdout's: each one holds a dispatch
+        // source on its descriptor and captures the buffer, so a missed one leaks
+        // for every test run and can keep firing after the test is over.
+        pipes.output.fileHandleForReading.readabilityHandler = nil
+        pipes.errors.fileHandleForReading.readabilityHandler = nil
+        process.endAndReap(closing: pipes.input)
         var finished = result
         if finished.downstreamNotes.isEmpty {
             finished.downstreamNotes = notableLines(in: errorBuffer.value)

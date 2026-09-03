@@ -32,8 +32,11 @@ struct ImportSheet: View {
                 .frame(minHeight: 150)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
 
-            ScrollView { status.frame(maxWidth: .infinity, alignment: .leading) }
-                .frame(maxHeight: 200)
+            ScrollView {
+                status.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxHeight: 260)
 
             HStack {
                 Button("Paste from Clipboard") {
@@ -82,10 +85,9 @@ struct ImportSheet: View {
                 ForEach(servers) { server in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(server.name)
-                            .font(.callout.weight(.medium))
+                            .font(.callout.weight(.semibold))
                         Text(commandLine(for: server))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                         ForEach(Validator.safetyIssues(for: server)) { issue in
@@ -97,8 +99,9 @@ struct ImportSheet: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
+                    .padding(9)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
                 }
 
                 if let notes = result?.notes, !notes.isEmpty {

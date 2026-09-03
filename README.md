@@ -167,7 +167,8 @@ A failed update check is silent.
 
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). In short: use it, change it, ship it, commercially
+or not. Keep the copyright notice, and it comes with no warranty.
 
 ## Tests
 

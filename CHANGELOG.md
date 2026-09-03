@@ -1,5 +1,30 @@
 # Release Notes
 
+## 1.2.1 — 2026-09-03
+
+A review pass over every screen, and the fixes it turned up.
+
+- The app icon now appears in the built-in guide. It never did: the guide is
+  rendered from `README.md`, and the Markdown reader had no support for images, so
+  it printed the raw `<img>` tag as text. Links were the same story — the Licence
+  section read `[LICENSE](LICENSE)`, brackets and all.
+- In the paste box, the command line each server would run was the dimmest text on
+  screen, which is backwards for the one thing you're meant to read before adding
+  something. It's now full-contrast, in a card with a real border, and the empty
+  gap below it is gone.
+- Testing a server left its process behind. Only one of the two output handlers was
+  released, standard input was never closed, and a terminated child was never
+  reaped — so every test leaked a handler and left a zombie, and a server ignoring
+  SIGTERM was never cleaned up at all. Servers are now closed gently first, then
+  signalled, then reaped, with a hard kill as the last resort. Measured: zero
+  processes left behind after a run.
+- Package identifiers from the registry are somebody else's data, and were being
+  dropped straight into a URL and force-unwrapped. Now percent-encoded and checked.
+- The guide's contents list was keyed on the first 60 characters of each block, so
+  two similar paragraphs would have sent it scrolling to the wrong place. Keyed on
+  position now.
+- The licence carries the full name, Brandon McGowen.
+
 ## 1.2.0 — 2026-09-03
 
 - The paste box now **shows the exact command each server would run** before you

@@ -32,14 +32,6 @@ struct ClaudeMCPManagerApp: App {
     }
 }
 
-enum AboutWindow {
-    static let id = "about"
-}
-
-enum HelpWindow {
-    static let id = "help"
-}
-
 /// `openWindow` is only reachable from a view, so menu commands wrap it in one.
 struct OpenWindowButton: View {
     let title: String

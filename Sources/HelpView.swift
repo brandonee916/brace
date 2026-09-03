@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// The in-app guide and release notes, rendered from the bundled `README.md` and
@@ -70,9 +71,9 @@ struct HelpView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    ForEach(document.blocks) { block in
+                    ForEach(Array(document.blocks.enumerated()), id: \.offset) { index, block in
                         view(for: block)
-                            .id(block.id)
+                            .id(HelpDocument.anchor(index))
                     }
                 }
                 .frame(maxWidth: 680, alignment: .leading)
@@ -122,6 +123,18 @@ struct HelpView: View {
             .padding(10)
             .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
 
+        case .image(let source, let width):
+            // The one image the guide uses is the app icon, which is already in the
+            // bundle as .icns — so use the running app's icon rather than shipping
+            // a second copy of the same artwork.
+            if let image = imageNamed(source) {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: width ?? 128, height: width ?? 128)
+                    .padding(.vertical, 2)
+            }
+
         case .table(let header, let rows):
             VStack(alignment: .leading, spacing: 0) {
                 tableRow(header, isHeader: true)
@@ -150,6 +163,17 @@ struct HelpView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(isHeader ? Color.secondary.opacity(0.12) : Color.clear)
+    }
+
+    private func imageNamed(_ source: String) -> NSImage? {
+        let name = (source as NSString).lastPathComponent
+        if name.hasPrefix("AppIcon") { return NSApp.applicationIconImage }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        if let url = Bundle.main.url(forResource: base, withExtension: ext.isEmpty ? nil : ext) {
+            return NSImage(contentsOf: url)
+        }
+        return nil
     }
 
     private func load() {

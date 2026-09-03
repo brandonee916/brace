@@ -165,7 +165,7 @@ private struct MarkdownText: View {
                         .padding(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(RoundedRectangle(cornerRadius: 5).fill(.quaternary.opacity(0.5)))
-                case .table:
+                case .table, .image:
                     EmptyView()
                 }
             }

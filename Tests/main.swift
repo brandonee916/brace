@@ -192,6 +192,9 @@ func configSuite() throws {
     let originalServers = try JSONValue.parse(String(contentsOf: real, encoding: .utf8))["mcpServers"]!
     check("round trip through disable/enable is lossless",
           restored["mcpServers"]!.serialized() == originalServers.serialized())
+    check("the file's own server order is preserved, not alphabetised",
+          restored["mcpServers"]!.objectPairs!.map(\.key) == originalServers.objectPairs!.map(\.key),
+          restored["mcpServers"]!.objectPairs!.map(\.key).joined(separator: ", "))
     check("sidecar cleaned up when nothing is disabled",
           !FileManager.default.fileExists(atPath: reopened.disabledURL.path))
 

@@ -12,6 +12,13 @@ final class ConfigStore: ObservableObject {
     /// The whole file as parsed, so keys this app knows nothing about survive a save.
     private var root: JSONValue = .object([])
 
+    /// The order servers appear in on disk.
+    ///
+    /// The sidebar sorts alphabetically for browsing, but rewriting the file in
+    /// that order would reshuffle a section the user may well have arranged
+    /// themselves. New servers go on the end; everything else stays put.
+    private var fileOrder: [String] = []
+
     nonisolated static let claudeSupportDirectory = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Application Support/Claude")
 
@@ -56,7 +63,9 @@ final class ConfigStore: ObservableObject {
                     return
                 }
                 root = parsed
-                for pair in root["mcpServers"]?.objectPairs ?? [] {
+                let pairs = root["mcpServers"]?.objectPairs ?? []
+                fileOrder = pairs.map(\.key)
+                for pair in pairs {
                     enabledServers.append(MCPServer(name: pair.key, json: pair.value))
                 }
             } catch let error as JSONParseError {
@@ -69,6 +78,7 @@ final class ConfigStore: ObservableObject {
             }
         } else {
             root = .object([(key: "mcpServers", value: .object([]))])
+            fileOrder = []
             lastLoadedText = ""
         }
 
@@ -101,9 +111,20 @@ final class ConfigStore: ObservableObject {
         do {
             try backupCurrentConfig()
 
-            let enabledPairs = named.filter(\.enabled)
-                .map { (key: $0.name, value: $0.jsonValue) }
+            let enabled = named.filter(\.enabled)
+            let positions = Dictionary(uniqueKeysWithValues: fileOrder.enumerated().map { ($1, $0) })
+            let enabledPairs = enabled
+                .enumerated()
+                .sorted { left, right in
+                    // Known servers keep their place; new ones follow, in the
+                    // order they were added.
+                    let a = positions[left.element.name] ?? (fileOrder.count + left.offset)
+                    let b = positions[right.element.name] ?? (fileOrder.count + right.offset)
+                    return a < b
+                }
+                .map { (key: $0.element.name, value: $0.element.jsonValue) }
             root["mcpServers"] = .object(enabledPairs)
+            fileOrder = enabledPairs.map(\.key)
             try writeAtomically(root.serialized() + "\n", to: configURL)
 
             let disabledPairs = named.filter { !$0.enabled }

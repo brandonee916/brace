@@ -27,6 +27,14 @@ struct TestResult {
     var log: String = ""
 }
 
+/// Live progress while a test runs, so a slow first launch doesn't look frozen.
+struct TestProgress: Sendable {
+    var stage: String
+    /// The most recent thing the server printed, if anything yet.
+    var lastLine: String?
+    var elapsed: TimeInterval
+}
+
 enum ServerTester {
     /// Launches the server, completes an `initialize` handshake, and asks for its
     /// tool list.
@@ -34,16 +42,24 @@ enum ServerTester {
     /// The environment is deliberately sparse, mirroring how Claude Desktop is
     /// launched by Finder — that's what makes a bare command name fail there but
     /// work in Terminal, and this test should reproduce it rather than hide it.
-    static func test(_ server: MCPServer, timeout: TimeInterval = 90) async -> TestResult {
+    static func test(
+        _ server: MCPServer,
+        timeout: TimeInterval = 180,
+        onProgress: @escaping @Sendable (TestProgress) -> Void = { _ in }
+    ) async -> TestResult {
         switch server.kind {
-        case .local: return await testLocal(server, timeout: timeout)
-        case .remote: return await testRemote(server, timeout: min(timeout, 30))
+        case .local: return await testLocal(server, timeout: timeout, onProgress: onProgress)
+        case .remote: return await testRemote(server, timeout: min(timeout, 30), onProgress: onProgress)
         }
     }
 
     // MARK: - Local (stdio)
 
-    private static func testLocal(_ server: MCPServer, timeout: TimeInterval) async -> TestResult {
+    private static func testLocal(
+        _ server: MCPServer,
+        timeout: TimeInterval,
+        onProgress: @escaping @Sendable (TestProgress) -> Void
+    ) async -> TestResult {
         let command = server.command.trimmingCharacters(in: .whitespaces)
         guard !command.isEmpty else {
             return TestResult(status: .wontStart, headline: "No command set",
@@ -60,12 +76,17 @@ enum ServerTester {
 
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout))
+                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout, onProgress: onProgress))
             }
         }
     }
 
-    private static func runHandshake(_ server: MCPServer, executable: String, timeout: TimeInterval) -> TestResult {
+    private static func runHandshake(
+        _ server: MCPServer,
+        executable: String,
+        timeout: TimeInterval,
+        onProgress: @escaping @Sendable (TestProgress) -> Void
+    ) -> TestResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = server.args.map(\.value).filter { !$0.isEmpty }
@@ -87,6 +108,13 @@ enum ServerTester {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = errors
+
+        let started = Date()
+        onProgress(TestProgress(
+            stage: "Launching \((executable as NSString).lastPathComponent)…",
+            lastLine: nil,
+            elapsed: 0
+        ))
 
         do {
             try process.run()
@@ -113,49 +141,97 @@ enum ServerTester {
 
         send(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Claude MCP Manager","version":"1.0"}}}"#)
 
+        // Read stdout through a readability handler rather than polling.
+        // Polling meant a timed-out read left a thread still blocked on the pipe;
+        // the next poll started another, and whichever one eventually woke up
+        // discarded the bytes it had taken. The handshake reply vanished that way.
+        let outputBuffer = Locked("")
+        output.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            guard !data.isEmpty else { return }
+            outputBuffer.mutate { $0 += String(decoding: data, as: UTF8.self) }
+        }
+
         let deadline = Date().addingTimeInterval(timeout)
-        var stdout = ""
+        var pending = ""
         var initializeReply: JSONValue?
         var toolCount: Int?
+        var askedForTools = false
 
-        while Date() < deadline {
-            if let reply = initializeReply, toolCount == nil {
-                _ = reply
-                send(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
-                send(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
-            }
-
-            guard let chunk = readAvailable(output.fileHandleForReading, until: deadline) else {
-                break // the pipe closed: the process is gone
-            }
-            stdout += chunk
-
-            for line in completeLines(in: &stdout) {
+        /// Consumes whatever has arrived. Returns an early result if the server
+        /// rejected the handshake outright.
+        func drain() -> TestResult? {
+            var chunk = ""
+            outputBuffer.mutate { chunk = $0; $0 = "" }
+            pending += chunk
+            for line in completeLines(in: &pending) {
                 guard let message = try? JSONValue.parse(line) else { continue }
-                let id = message["id"]
-                if initializeReply == nil, case .number("1")? = id {
+                switch message["id"] {
+                case .number("1")?:
+                    guard initializeReply == nil else { continue }
                     if let error = message["error"] {
-                        return finish(process, errorBuffer, stdout, TestResult(
+                        return TestResult(
                             status: .noResponse,
                             headline: "The server refused the handshake",
                             detail: error["message"]?.stringValue ?? error.serialized(pretty: false)
-                        ))
+                        )
                     }
                     initializeReply = message["result"]
-                } else if case .number("2")? = id {
+                case .number("2")?:
                     toolCount = message["result"]?["tools"]?.arrayValues?.count ?? 0
+                default:
+                    continue
                 }
+            }
+            return nil
+        }
+
+        var stage = "Waiting for the server to start…"
+        var lastReported = Date.distantPast
+
+        while Date() < deadline {
+            // Refresh roughly four times a second: enough to look alive, cheap
+            // enough not to matter.
+            if Date().timeIntervalSince(lastReported) > 0.25 {
+                lastReported = Date()
+                onProgress(TestProgress(
+                    stage: stage,
+                    lastLine: lastMeaningfulLine(in: errorBuffer.value),
+                    elapsed: Date().timeIntervalSince(started)
+                ))
+            }
+
+            if let rejected = drain() {
+                return finish(process, output, errorBuffer, pending, rejected)
+            }
+
+            // Exactly once, and only after initialize is acknowledged.
+            if initializeReply != nil, !askedForTools {
+                askedForTools = true
+                stage = "It answered — asking what tools it offers…"
+                send(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+                send(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
+            } else if !askedForTools, !errorBuffer.value.isEmpty,
+                      stage == "Waiting for the server to start…" {
+                stage = "It's running — waiting for it to answer the handshake…"
             }
 
             if initializeReply != nil, toolCount != nil { break }
-            if !process.isRunning, stdout.isEmpty { break }
+
+            if !process.isRunning {
+                // It has exited; take one last look at what it left behind.
+                _ = drain()
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.05)
         }
+        _ = drain()
 
         guard let result = initializeReply else {
             let stderr = errorBuffer.value
             let exited = !process.isRunning
             let status = process.isRunning ? TestResult.Status.noResponse : .wontStart
-            return finish(process, errorBuffer, stdout, TestResult(
+            return finish(process, output, errorBuffer, pending, TestResult(
                 status: status,
                 headline: exited ? "The server stopped before answering" : "No answer from the server",
                 detail: exited
@@ -166,7 +242,7 @@ enum ServerTester {
         }
 
         let info = result["serverInfo"]
-        return finish(process, errorBuffer, stdout, TestResult(
+        return finish(process, output, errorBuffer, pending, TestResult(
             status: .responded,
             headline: "The server started and answered",
             detail: "Your configuration works. Anything below is what the server itself reported.",
@@ -180,10 +256,12 @@ enum ServerTester {
 
     private static func finish(
         _ process: Process,
+        _ output: Pipe,
         _ errorBuffer: Locked<String>,
         _ stdout: String,
         _ result: TestResult
     ) -> TestResult {
+        output.fileHandleForReading.readabilityHandler = nil
         if process.isRunning { process.terminate() }
         var finished = result
         if finished.downstreamNotes.isEmpty {
@@ -194,26 +272,24 @@ enum ServerTester {
         return finished
     }
 
-    /// Reads whatever is available without blocking past the deadline.
-    private static func readAvailable(_ handle: FileHandle, until deadline: Date) -> String? {
-        let semaphore = DispatchSemaphore(value: 0)
-        var data: Data?
-        DispatchQueue.global(qos: .userInitiated).async {
-            data = handle.availableData
-            semaphore.signal()
-        }
-        let wait = max(0.1, min(1.0, deadline.timeIntervalSinceNow))
-        if semaphore.wait(timeout: .now() + wait) == .timedOut { return "" }
-        guard let data, !data.isEmpty else { return nil }
-        return String(decoding: data, as: UTF8.self)
-    }
-
     /// Pulls whole lines out of the buffer, leaving any partial line behind.
     private static func completeLines(in buffer: inout String) -> [String] {
         guard buffer.contains("\n") else { return [] }
         var parts = buffer.components(separatedBy: "\n")
         buffer = parts.removeLast()
         return parts.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+
+    /// The newest line worth showing while a test is in flight — usually the
+    /// package manager reporting a download on a first run.
+    static func lastMeaningfulLine(in text: String) -> String? {
+        for line in text.components(separatedBy: .newlines).reversed() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.count > 3 else { continue }
+            let message = trimmed.components(separatedBy: " - ").last ?? trimmed
+            return message.count > 110 ? String(message.prefix(110)) + "…" : message
+        }
+        return nil
     }
 
     /// Error and warning lines worth showing, deduplicated.
@@ -227,7 +303,13 @@ enum ServerTester {
             guard upper.contains("ERROR") || upper.contains("WARN") || upper.contains("FAIL") else { continue }
             // Strip a leading timestamp/logger prefix so the message reads cleanly.
             let message = trimmed.components(separatedBy: " - ").last ?? trimmed
-            guard message.count > 3, seen.insert(message).inserted else { continue }
+            // Skip banner rules and bare log-level residue like "ERROR -".
+            guard message.count > 8,
+                  message.contains(where: \.isLetter),
+                  message.rangeOfCharacter(from: .alphanumerics) != nil,
+                  Set(message).count > 4,
+                  seen.insert(message).inserted
+            else { continue }
             notes.append(message)
             if notes.count >= 6 { break }
         }
@@ -236,7 +318,13 @@ enum ServerTester {
 
     // MARK: - Remote (http)
 
-    private static func testRemote(_ server: MCPServer, timeout: TimeInterval) async -> TestResult {
+    private static func testRemote(
+        _ server: MCPServer,
+        timeout: TimeInterval,
+        onProgress: @escaping @Sendable (TestProgress) -> Void
+    ) async -> TestResult {
+        let started = Date()
+        onProgress(TestProgress(stage: "Connecting to the server…", lastLine: nil, elapsed: 0))
         guard let url = URL(string: server.url.trimmingCharacters(in: .whitespaces)),
               url.scheme?.hasPrefix("http") == true else {
             return TestResult(status: .wontStart, headline: "That URL isn't valid",
@@ -253,6 +341,7 @@ enum ServerTester {
         request.httpBody = Data(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Claude MCP Manager","version":"1.0"}}}"#.utf8)
 
         do {
+            onProgress(TestProgress(stage: "Sending the MCP handshake…", lastLine: nil, elapsed: Date().timeIntervalSince(started)))
             let (data, response) = try await URLSession.shared.data(for: request)
             let body = String(decoding: data, as: UTF8.self)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0

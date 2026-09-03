@@ -6,6 +6,7 @@ struct TestSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var result: TestResult?
+    @State private var progress: TestProgress?
     @State private var isRunning = true
     @State private var showsLog = false
     @State private var task: Task<Void, Never>?
@@ -50,18 +51,48 @@ struct TestSheet: View {
     }
 
     private var running: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(server.kind == .local ? "Starting the server…" : "Connecting…")
+                Text(progress?.stage ?? "Starting…")
+                    .fontWeight(.medium)
+                Spacer(minLength: 8)
+                Text(elapsedText)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
             }
+
             Text(server.kind == .local
-                 ? "It's launched exactly the way Claude Desktop launches it, then asked to introduce itself. The first run can take a while if the package still has to download."
+                 ? "It's launched exactly the way Claude Desktop launches it, then asked to introduce itself. A first run can take a minute or two while the package downloads."
                  : "Sending an MCP handshake to the address you configured.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // The server's own output is the most informative thing to show while
+            // waiting — it's usually saying what it's downloading or connecting to.
+            if let line = progress?.lastLine {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Latest from the server")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(line)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(9)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
+                .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.15), value: progress?.stage)
+    }
+
+    private var elapsedText: String {
+        let seconds = Int(progress?.elapsed ?? 0)
+        return seconds < 60 ? "\(seconds)s" : String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     @ViewBuilder
@@ -168,9 +199,13 @@ struct TestSheet: View {
         task?.cancel()
         isRunning = true
         result = nil
+        progress = nil
         let target = server
         task = Task {
-            let outcome = await ServerTester.test(target)
+            let outcome = await ServerTester.test(target) { update in
+                // Reported from the reader thread, so hop to the main actor.
+                Task { @MainActor in progress = update }
+            }
             if Task.isCancelled { return }
             result = outcome
             isRunning = false

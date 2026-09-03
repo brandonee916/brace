@@ -1,5 +1,27 @@
 # Release Notes
 
+## 1.0.1 — 2026-09-03
+
+Fixes a bug that made **Test Connection** fail against servers that were working
+perfectly well.
+
+- The reader that waited for a server's reply polled the pipe on a background
+  thread with a short timeout. When that timed out the thread was still blocked on
+  the read, and the next poll started another one — so whichever thread eventually
+  woke up swallowed the handshake reply and discarded it. Any server that took a
+  moment longer to start would time out for no reason. It now reads through a
+  proper handler, so nothing is lost.
+- `tools/list` was being re-sent every second until answered, reusing the same
+  request id. It's sent once now, after the handshake is acknowledged.
+- The test window shows live progress: what it's doing, how long it's been going,
+  and the most recent line the server printed — so a slow first run that's
+  downloading a package no longer looks frozen.
+- The default timeout is longer, since a first run on a new machine has to
+  download the package before anything can start.
+- Saving no longer alphabetises the servers in your config file. The sidebar still
+  sorts them for browsing, but the file keeps the order you had, with new servers
+  added at the end.
+
 ## 1.0.0 — 2026-09-02
 
 The first release. Claude Desktop lists your MCP servers but won't let you change

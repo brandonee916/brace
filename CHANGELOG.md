@@ -1,5 +1,33 @@
 # Release Notes
 
+## 2.3.0 — 2026-09-03
+
+Two fixes from the same audit, both found by actually running the app rather
+than reading it.
+
+- **Test Connection no longer passes servers that Claude Desktop can't run.**
+  The test launches the server with the sparse `PATH` a Finder-launched app
+  gets — but it had been *finding* the program through your login shell's
+  `PATH` first, then launching it by full path. So a bare `uvx` that lives in
+  `~/.local/bin` started, answered, and reported success, while Claude Desktop
+  could never find it. A bare name is now looked up only where Claude Desktop
+  will look; when it isn't there the result says so and names the full path
+  that fixes it. Names genuinely on that PATH, like `env`, still run.
+
+- **Closing the window no longer throws away unsaved edits.** The store already
+  outlived the window, but the view asked for a fresh read every time it
+  appeared — so reopening re-read the file over your work, with no prompt and
+  nothing to undo. Reopening now shows the edits exactly as you left them.
+  *Reload from Disk* and *Discard* still reload, because that's their job.
+
+- **Restarting Claude Desktop asks, and never insists.** It used to force-kill
+  Claude Desktop 2.5 seconds after asking it to quit — long enough to look
+  polite, short enough to interrupt whatever it writes on the way out, possibly
+  the config file itself. It also overrode a refused quit, discarding whatever
+  unsaved work put the dialog there. It now waits up to ten seconds, relaunches
+  as soon as Claude Desktop is actually gone, and if it won't go, says so and
+  leaves it alone.
+
 ## 2.2.0 — 2026-09-03
 
 An external audit found several ways to lose a configuration or crash the app.

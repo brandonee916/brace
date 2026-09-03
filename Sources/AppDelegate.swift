@@ -36,7 +36,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// A utility with one window should quit when that window closes.
+    /// Closing the window deliberately does *not* quit.
+    ///
+    /// Quitting there sounds tidier, and routes ⌘W through the prompt above —
+    /// but cancelling that prompt leaves an app with no window, and the reopen
+    /// that should bring it back re-runs the terminate check instead, so the
+    /// prompt returns and the window never does. Staying alive is what makes
+    /// the window recoverable: the store lives on `BraceApp`, and `loadIfNeeded`
+    /// keeps a reopened window from re-reading the file over unsaved edits, so
+    /// ⌘W hides the work rather than losing it.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }

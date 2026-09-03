@@ -32,7 +32,7 @@ struct ContentView: View {
             statusBar
         }
         .toolbar { toolbarContent }
-        .task { store.load() }
+        .task { store.loadIfNeeded() }
         .task { await updates.checkInBackgroundIfDue() }
         .sheet(isPresented: $showsImport) { ImportSheet(store: store) }
         .sheet(isPresented: $showsBackups) { BackupsSheet(store: store) }

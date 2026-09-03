@@ -78,7 +78,24 @@ final class ConfigStore: ObservableObject {
 
     // MARK: - Loading
 
+    /// Whether `load()` has ever run, so re-entering a view can't re-read the
+    /// file over work in progress.
+    private(set) var hasLoaded = false
+
+    /// The initial read, and only that.
+    ///
+    /// `ContentView` asks for this when it appears, and it appears again every
+    /// time the window is reopened — so calling `load()` there threw away
+    /// whatever was unsaved, with no prompt and no way to get it back. Reloading
+    /// on purpose (the Reload from Disk and Discard buttons) still calls
+    /// `load()` directly, because there the loss is the point.
+    func loadIfNeeded() {
+        guard !hasLoaded else { return }
+        load()
+    }
+
     func load() {
+        hasLoaded = true
         loadError = nil
         let manager = FileManager.default
 
@@ -562,34 +579,63 @@ final class ConfigStore: ObservableObject {
     // MARK: - Claude Desktop
 
     var claudeIsRunning: Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.claudefordesktop").isEmpty
+        !NSRunningApplication.runningApplications(withBundleIdentifier: Self.claudeBundleID).isEmpty
     }
 
-    func restartClaudeDesktop() {
-        let running = NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.claudefordesktop")
-        for app in running { app.terminate() }
+    private static let claudeBundleID = "com.anthropic.claudefordesktop"
 
+    /// Claude Desktop owns the file this app just wrote, so it gets *asked* to
+    /// quit and never made to.
+    ///
+    /// This used to call `forceTerminate()` 2.5 seconds after the request —
+    /// long enough to look polite, short enough to land in the middle of
+    /// whatever the app flushes on its way out, possibly this very config file.
+    /// It also overrode a refused quit, discarding whatever unsaved work made
+    /// Claude Desktop put up a dialog. A restart is a convenience; a truncated
+    /// config is the thing this app exists to prevent, so if it won't go, say so
+    /// and leave it alone.
+    func restartClaudeDesktop() {
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: Self.claudeBundleID) {
+            app.terminate()
+        }
         statusMessage = "Restarting Claude Desktop…"
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
-            guard let self else { return }
-            let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.claudefordesktop")
-            for app in stillRunning { app.forceTerminate() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                guard let url = NSWorkspace.shared.urlForApplication(
-                    withBundleIdentifier: "com.anthropic.claudefordesktop"
-                ) else {
-                    self.statusMessage = "Couldn't find Claude Desktop to relaunch it."
-                    return
-                }
-                let configuration = NSWorkspace.OpenConfiguration()
-                configuration.activates = true
-                NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
-                    DispatchQueue.main.async {
-                        self.statusMessage = error == nil
-                            ? "Claude Desktop restarted."
-                            : "Couldn't relaunch Claude Desktop: \(error!.localizedDescription)"
-                    }
-                }
+        awaitClaudeQuit(attemptsLeft: 20)
+    }
+
+    /// Polls instead of sleeping a fixed span: relaunches as soon as it's
+    /// actually gone, and gives a busy machine ten seconds before giving up.
+    private func awaitClaudeQuit(attemptsLeft: Int) {
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: Self.claudeBundleID).isEmpty else {
+            relaunchClaudeDesktop()
+            return
+        }
+        guard attemptsLeft > 0 else {
+            statusMessage = """
+                Claude Desktop is still running, so it wasn't restarted — it may be \
+                asking about unsaved work. Your config is saved; quit and reopen \
+                Claude Desktop yourself to pick it up.
+                """
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.awaitClaudeQuit(attemptsLeft: attemptsLeft - 1)
+        }
+    }
+
+    private func relaunchClaudeDesktop() {
+        guard let url = NSWorkspace.shared.urlForApplication(
+            withBundleIdentifier: Self.claudeBundleID
+        ) else {
+            statusMessage = "Couldn't find Claude Desktop to relaunch it."
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { [weak self] _, error in
+            DispatchQueue.main.async {
+                self?.statusMessage = error == nil
+                    ? "Claude Desktop restarted."
+                    : "Couldn't relaunch Claude Desktop: \(error!.localizedDescription)"
             }
         }
     }

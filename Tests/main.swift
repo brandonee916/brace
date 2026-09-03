@@ -472,6 +472,38 @@ func auditSuite() throws {
     {"name":"a/b","version":"1","packages":[{"registryType":"npm","identifier":"x","version":"1",
      "runtimeHint":"/bin/sh","transport":{"type":"stdio"}}]}
     """))!
+    // Reopening the window builds ContentView again, and its `.task` used to
+    // call load() — re-reading the file over unsaved edits, with no prompt and
+    // no undo. Verified live: disabling a server, ⌘W, reopening, and the change
+    // was simply gone.
+    do {
+        let reopenDir = try dir("reopen", sample)
+        let store = ConfigStore(directory: reopenDir)
+        store.loadIfNeeded()
+        check("the first load happens", store.servers.count == 1 && store.hasLoaded)
+
+        store.servers[0].enabled = false
+        store.servers.append({
+            var fresh = MCPServer()
+            fresh.name = "in-progress"
+            fresh.command = "/bin/echo"
+            return fresh
+        }())
+        check("edits mark the store dirty", store.hasUnsavedChanges)
+
+        // What reopening the window does.
+        store.loadIfNeeded()
+        check("reopening the window keeps unsaved edits",
+              store.servers.count == 2 && store.hasUnsavedChanges,
+              "\(store.servers.count) servers, dirty=\(store.hasUnsavedChanges)")
+        check("and keeps the disabled toggle", store.servers[0].enabled == false)
+
+        // Asking for a reload on purpose still discards, which is its job.
+        store.load()
+        check("an explicit reload still discards", store.servers.count == 1 && !store.hasUnsavedChanges,
+              "\(store.servers.count) servers, dirty=\(store.hasUnsavedChanges)")
+    }
+
     check("a registry runtimeHint outside the allowlist is ignored",
           hostile.packages[0].runtime == "npx", hostile.packages[0].runtime ?? "nil")
 }
@@ -935,7 +967,74 @@ func updateSuite() {
     })
 }
 
+// MARK: - Test Connection resolves commands the way Claude Desktop does
+
+private final class ResultBox<U>: @unchecked Sendable { var value: U? }
+
+/// Bridges the async tester into this synchronous harness.
+func syncAwait<T: Sendable>(_ operation: @escaping @Sendable () async -> T) -> T {
+    let box = ResultBox<T>()
+    let done = DispatchSemaphore(value: 0)
+    Task.detached { box.value = await operation(); done.signal() }
+    done.wait()
+    return box.value!
+}
+
+func testerSuite() {
+    let inherited = ServerTester.inheritedPath
+    check("the inherited PATH is the sparse one a Finder launch gets",
+          inherited == "/usr/bin:/bin:/usr/sbin:/sbin", inherited)
+
+    func result(command: String, timeout: TimeInterval = 6) -> TestResult {
+        var server = MCPServer()
+        server.name = "probe"
+        server.command = command
+        let probe = server
+        return syncAwait { await ServerTester.test(probe, timeout: timeout) }
+    }
+
+    // A bare name that exists nowhere at all.
+    let missing = result(command: "brace-probe-definitely-absent")
+    check("a bare name that exists nowhere won't start",
+          missing.status == .wontStart, missing.headline)
+    check("and the headline says Claude Desktop won't find it",
+          missing.headline.contains("won't find"), missing.headline)
+
+    // The regression Fable found: a command the login shell can reach but a
+    // Finder-launched app cannot. Resolving through the login shell's PATH used
+    // to make this pass, so the test greenlit a config that fails in Claude.
+    let inheritedDirs = inherited.split(separator: ":").map(String.init)
+    let offPath = ["uvx", "npx", "pipx", "bunx", "deno", "uv"].first { name in
+        guard let found = CommandResolver.preferred(for: name)?.path else { return false }
+        return !inheritedDirs.contains((found as NSString).deletingLastPathComponent)
+    }
+    if let offPath, let real = CommandResolver.preferred(for: offPath)?.path {
+        let hidden = result(command: offPath)
+        check("a bare \(offPath) off the inherited PATH won't start",
+              hidden.status == .wontStart, "\(hidden.headline) — \(hidden.detail)")
+        check("and the result names the full path that would fix it",
+              hidden.detail.contains(real), hidden.detail)
+    } else {
+        print("SKIP  no launcher installed outside \(inherited) to test against")
+    }
+
+    // Something genuinely on the inherited PATH must get past resolution and
+    // actually be launched, otherwise the fix would reject every bare name.
+    if FileManager.default.isExecutableFile(atPath: "/usr/bin/env") {
+        let onPath = result(command: "env")
+        check("a bare name that IS on the inherited PATH gets launched",
+              !onPath.headline.contains("won't find"), "\(onPath.headline) — \(onPath.detail)")
+    }
+
+    // An absolute path is still taken at face value.
+    let absolute = result(command: "/nonexistent/brace-probe")
+    check("an absolute path that isn't there reports that path",
+          absolute.status == .wontStart && absolute.detail.contains("/nonexistent/brace-probe"),
+          absolute.detail)
+}
+
 reviewSuite()
+testerSuite()
 safetySuite()
 updateSuite()
 registrySuite()

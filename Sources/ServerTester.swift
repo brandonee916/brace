@@ -50,6 +50,14 @@ enum ServerTester {
     private static let ignoreBrokenPipe: Void = {
         signal(SIGPIPE, SIG_IGN)
     }()
+
+    /// The `PATH` a Finder-launched app inherits, and all Claude Desktop gets.
+    /// The child environment and the lookup that resolves a bare command name
+    /// have to agree on it. They didn't: the lookup went through the login
+    /// shell's `PATH`, so a bare `uvx` living only in `~/.local/bin` was found,
+    /// launched by absolute path, and passed a test for a config that cannot
+    /// work in Claude Desktop — the exact failure this test exists to catch.
+    static let inheritedPath = "/usr/bin:/bin:/usr/sbin:/sbin"
     /// Launches the server, completes an `initialize` handshake, and asks for its
     /// tool list.
     ///
@@ -84,7 +92,37 @@ enum ServerTester {
             return TestResult(status: .wontStart, headline: "No command set",
                               detail: "Fill in the program Claude should run, then test again.")
         }
-        let resolved = command.contains("/") ? command : (CommandResolver.preferred(for: command)?.path ?? command)
+        let resolved: String
+        if command.contains("/") {
+            resolved = command
+        } else {
+            // Only the directories the child will actually get. Anywhere else
+            // is a path this app can reach and Claude Desktop cannot.
+            let onInheritedPath = inheritedPath
+                .split(separator: ":")
+                .map { (String($0) as NSString).appendingPathComponent(command) }
+                .first { FileManager.default.isExecutableFile(atPath: $0) }
+            guard let found = onInheritedPath else {
+                let elsewhere = CommandResolver.preferred(for: command)?.path
+                return TestResult(
+                    status: .wontStart,
+                    headline: "Claude Desktop won't find \"\(command)\"",
+                    detail: elsewhere.map {
+                        """
+                        A bare name is searched only in \(inheritedPath), and \"\(command)\" \
+                        isn't in any of those — yours is at \($0). Claude Desktop is launched by \
+                        Finder, so it never reads your shell's PATH. Put that full path in \
+                        "Program to run" and test again.
+                        """
+                    } ?? """
+                        A bare name is searched only in \(inheritedPath), and there's no \
+                        \"\(command)\" in any of those. Claude Desktop is launched by Finder, so it \
+                        never reads your shell's PATH — use the full path to the program.
+                        """
+                )
+            }
+            resolved = found
+        }
         guard FileManager.default.isExecutableFile(atPath: resolved) else {
             return TestResult(
                 status: .wontStart,
@@ -113,7 +151,7 @@ enum ServerTester {
 
         // A GUI-launched app inherits almost nothing; reproduce that.
         var environment: [String: String] = [
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": inheritedPath,
             "HOME": NSHomeDirectory(),
             "USER": NSUserName(),
             "LANG": "en_US.UTF-8",

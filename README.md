@@ -16,9 +16,10 @@ its newest heading, so releasing means editing one file.
 
 ## Build and run
 
-Needs **macOS 14 or later** and the Xcode Command Line Tools
-(`xcode-select --install`). No Xcode, no Node, no package manager, no network
-access.
+Needs an **Apple Silicon Mac** running **macOS 14 or later**, and the Xcode
+Command Line Tools (`xcode-select --install`). No Xcode, no Node, no package
+manager, no network access. The build targets `arm64` only — on an Intel Mac it
+compiles and signs without complaint, then refuses to launch.
 
 ```bash
 ./build.sh --install

@@ -35,7 +35,21 @@ struct TestProgress: Sendable {
     var elapsed: TimeInterval
 }
 
+/// Lets the UI stop a test that is already running.
+final class TestCancellation: @unchecked Sendable {
+    private let flag = Locked(false)
+    var isCancelled: Bool { flag.value }
+    func cancel() { flag.mutate { $0 = true } }
+}
+
 enum ServerTester {
+    /// Writing to a pipe whose reader has gone raises SIGPIPE, whose default
+    /// action is to kill the process — so a server that answered and exited took
+    /// the whole app down, unsaved edits included. Ignore it and let `write` fail
+    /// with an error instead.
+    private static let ignoreBrokenPipe: Void = {
+        signal(SIGPIPE, SIG_IGN)
+    }()
     /// Launches the server, completes an `initialize` handshake, and asks for its
     /// tool list.
     ///
@@ -45,11 +59,15 @@ enum ServerTester {
     static func test(
         _ server: MCPServer,
         timeout: TimeInterval = 180,
+        cancellation: TestCancellation = TestCancellation(),
         onProgress: @escaping @Sendable (TestProgress) -> Void = { _ in }
     ) async -> TestResult {
+        _ = ignoreBrokenPipe
         switch server.kind {
-        case .local: return await testLocal(server, timeout: timeout, onProgress: onProgress)
-        case .remote: return await testRemote(server, timeout: min(timeout, 30), onProgress: onProgress)
+        case .local:
+            return await testLocal(server, timeout: timeout, cancellation: cancellation, onProgress: onProgress)
+        case .remote:
+            return await testRemote(server, timeout: min(timeout, 30), onProgress: onProgress)
         }
     }
 
@@ -58,6 +76,7 @@ enum ServerTester {
     private static func testLocal(
         _ server: MCPServer,
         timeout: TimeInterval,
+        cancellation: TestCancellation,
         onProgress: @escaping @Sendable (TestProgress) -> Void
     ) async -> TestResult {
         let command = server.command.trimmingCharacters(in: .whitespaces)
@@ -76,7 +95,7 @@ enum ServerTester {
 
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout, onProgress: onProgress))
+                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout, cancellation: cancellation, onProgress: onProgress))
             }
         }
     }
@@ -85,6 +104,7 @@ enum ServerTester {
         _ server: MCPServer,
         executable: String,
         timeout: TimeInterval,
+        cancellation: TestCancellation,
         onProgress: @escaping @Sendable (TestProgress) -> Void
     ) -> TestResult {
         let process = Process()
@@ -130,7 +150,12 @@ enum ServerTester {
         let errorBuffer = Locked("")
         errors.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            // Empty means end of file. Returning without clearing the handler
+            // leaves it firing in a tight loop for the rest of the test.
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             errorBuffer.mutate { $0 += String(decoding: data, as: UTF8.self) }
         }
 
@@ -148,7 +173,10 @@ enum ServerTester {
         let outputBuffer = Locked("")
         output.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty else { return }
+            guard !data.isEmpty else {
+                handle.readabilityHandler = nil
+                return
+            }
             outputBuffer.mutate { $0 += String(decoding: data, as: UTF8.self) }
         }
 
@@ -190,6 +218,14 @@ enum ServerTester {
         var lastReported = Date.distantPast
 
         while Date() < deadline {
+            if cancellation.isCancelled {
+                return finish(process, (input, output, errors), errorBuffer, pending, TestResult(
+                    status: .noResponse,
+                    headline: "Stopped",
+                    detail: "You stopped the test, and the server was shut down."
+                ))
+            }
+
             // Refresh roughly four times a second: enough to look alive, cheap
             // enough not to matter.
             if Date().timeIntervalSince(lastReported) > 0.25 {

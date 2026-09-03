@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
-    @StateObject private var store = ConfigStore()
+    @ObservedObject var store: ConfigStore
     @State private var selection: UUID?
     @State private var showsImport = false
     @State private var showsBackups = false

@@ -4,9 +4,13 @@ import SwiftUI
 struct BraceApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    /// Owned by the app, not the window. Closing the window used to take the
+    /// store — and any unsaved edits — with it, silently.
+    @StateObject private var store = ConfigStore()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(store: store)
                 .frame(minWidth: 860, minHeight: 560)
         }
         .defaultSize(width: 1000, height: 700)

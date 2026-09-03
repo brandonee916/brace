@@ -28,8 +28,9 @@ enum JSONLenient {
 
         let normalized = normalizeCharacters(result.text)
         if normalized != result.text {
+            let hadCarriageReturns = result.text.unicodeScalars.contains("\r")
             result.text = normalized
-            result.notes.append("straightened curly quotes")
+            result.notes.append(hadCarriageReturns ? "normalised line endings" : "straightened curly quotes")
         }
 
         let pass = stripCommentsAndNormalizeQuotes(result.text)
@@ -87,6 +88,10 @@ enum JSONLenient {
         output.reserveCapacity(text.count)
         for character in text {
             switch character {
+            // Swift reads "\r\n" as a single Character, so the comment scanner's
+            // check for "\n" never matched it and a snippet with Windows line
+            // endings was swallowed whole as one comment.
+            case "\r\n", "\r": output.append("\n")
             case "\u{201C}", "\u{201D}", "\u{201E}", "\u{2033}": output.append("\"")
             case "\u{2018}", "\u{2019}", "\u{201A}", "\u{2032}": output.append("'")
             case "\u{00A0}", "\u{202F}", "\u{2007}": output.append(" ")

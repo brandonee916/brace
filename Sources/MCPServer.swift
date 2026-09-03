@@ -74,6 +74,9 @@ struct MCPServer: Identifiable, Equatable, Sendable {
     // Local
     var command: String = ""
     var args: [ArgItem] = []
+    /// Whether the entry declared `transport` rather than `type`, so a remote
+    /// server keeps whichever spelling it arrived with.
+    var transportKey = "type"
     var env: [PairItem] = []
 
     // Remote
@@ -114,17 +117,26 @@ struct MCPServer: Identifiable, Equatable, Sendable {
         let pairs = json.objectPairs ?? []
 
         command = json["command"]?.stringValue ?? ""
-        args = (json["args"]?.stringArray ?? []).map(ArgItem.init)
+        // Render non-strings rather than dropping them: an entry with
+        // "args": ["--port", 8080] used to lose the number entirely.
+        args = (json["args"]?.arrayValues ?? []).map { value in
+            ArgItem(value.stringValue ?? value.serialized(pretty: false))
+        }
         env = (json["env"]?.stringMap ?? []).map { PairItem(key: $0.0, value: $0.1) }
         url = json["url"]?.stringValue ?? ""
         headers = (json["headers"]?.stringMap ?? []).map { PairItem(key: $0.0, value: $0.1) }
 
         let declaredType = json["type"]?.stringValue ?? json["transport"]?.stringValue
+        if json["type"] == nil, json["transport"] != nil { transportKey = "transport" }
         if !url.isEmpty || declaredType == "http" || declaredType == "sse" {
             kind = .remote
             transport = declaredType ?? "http"
         } else {
             kind = .local
+            // A local entry may say "type": "stdio"; keep it rather than dropping it.
+            if let declaredType, declaredType == "stdio" {
+                extras.append((key: json["type"] != nil ? "type" : "transport", value: .string(declaredType)))
+            }
         }
 
         extras = pairs.filter { !MCPServer.knownKeys.contains($0.key) }
@@ -144,7 +156,7 @@ struct MCPServer: Identifiable, Equatable, Sendable {
                 pairs.append((key: "env", value: .from(cleanEnv)))
             }
         case .remote:
-            pairs.append((key: "type", value: .string(transport)))
+            pairs.append((key: transportKey, value: .string(transport)))
             pairs.append((key: "url", value: .string(url)))
             let cleanHeaders = headers.filter { !$0.key.isEmpty }.map { ($0.key, $0.value) }
             if !cleanHeaders.isEmpty {

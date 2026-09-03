@@ -95,7 +95,7 @@ struct ImportSheet: View {
                 // scroll to find is a warning that goes unread.
                 if !flaggedServers.isEmpty {
                     VStack(alignment: .leading, spacing: 5) {
-                        ForEach(flaggedServers, id: \.name) { server in
+                        ForEach(Array(flaggedServers.enumerated()), id: \.offset) { _, server in
                             ForEach(Validator.safetyIssues(for: server)) { issue in
                                 Label {
                                     Text("\(server.name): ").fontWeight(.semibold)
@@ -117,7 +117,7 @@ struct ImportSheet: View {
 
                 // A config file names the program Claude will run, so show exactly
                 // what that is before it gets added rather than after.
-                ForEach(servers) { server in
+                ForEach(Array(servers.enumerated()), id: \.offset) { _, server in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(server.name)
                             .font(.callout.weight(.semibold))

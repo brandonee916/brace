@@ -1,5 +1,78 @@
 # Release Notes
 
+## 2.2.0 — 2026-09-03
+
+An external audit found several ways to lose a configuration or crash the app.
+All of them are fixed, and every one now has a test.
+
+### Could destroy a config
+
+- **Saving on top of a config that failed to load wiped it.** A parse error left
+  the app holding an empty document, and Save wrote that out — every existing
+  server and all of Claude Desktop's own settings, gone. Saving now refuses
+  whenever the file on disk can't be read and parsed.
+- **A config with Windows line endings wouldn't parse at all**, which fed
+  straight into the above. Swift reads a carriage return and line feed as one
+  character, so the parser matched neither. The same bug swallowed a pasted
+  snippet whole when it had a `//` header and CRLF endings.
+- **Turning a server off could lose it entirely.** The config was written before
+  the list of switched-off servers, so a failure on the second write left the
+  server in neither file. They're written the other way round now: a failure
+  duplicates rather than deletes.
+- **A symlinked config was replaced by a regular file.** People keep this file in
+  a dotfiles repository and link to it; saving broke the link and left the real
+  file untouched, and "backups" were symlinks to the file they were meant to
+  protect.
+- **A server with no name was dropped silently**, secrets included, while the app
+  reported success. It refuses to save now.
+- The switched-off list had no conflict check and no backup of its own. Both
+  fixed; backups now cover it too.
+- **Restore replaced the whole file**, rolling back Claude Desktop's preferences
+  along with the servers, which is not what the button offered to do. It now puts
+  back only the servers.
+- Closing the window discarded unsaved edits without a word, because the editor's
+  state lived in the window. It belongs to the app now and survives.
+- Backup filenames used your locale's calendar, so after a language change the
+  app could no longer read its own names and pruning could delete the newest.
+
+### Could crash the app
+
+- **A server that answered and then exited killed Brace outright**, taking any
+  unsaved edits with it: writing to a closed pipe raises a signal whose default
+  action is termination.
+- **Deeply nested JSON crashed the app.** Around five thousand levels overflowed
+  the stack, and registry and update replies are parsed on threads with much less
+  stack than the main one. Input that deep is now rejected.
+
+### Testing a server
+
+- **Stop didn't stop it.** It let go of the result but left the server running to
+  the full timeout, and testing again started a second one alongside. It now
+  shuts the server down, including anything that server started.
+- Once a server closed its output the app spun a core reading nothing.
+
+### Safety warnings
+
+The check for snippets that run arbitrary code missed most real shapes. It now
+catches versioned interpreters like `python3.12`, combined flags like `-ec`,
+`--eval=`, wrappers such as `env` and `arch`, and shells like `pwsh` and `awk`.
+It also flags environment variables that change what gets loaded or downloaded —
+`DYLD_INSERT_LIBRARIES`, `NODE_OPTIONS`, `PYTHONPATH`, `UV_INDEX_URL` and
+similar — and arguments that repoint a package manager at another source.
+
+Registry entries no longer choose the launcher: a published entry could name any
+program, including an absolute path. Only the known runtimes are accepted, the
+same safety warnings now appear before you add from the registry, and repository
+links are followed only over http and https.
+
+### Smaller things
+
+- A `"args"` entry containing a number lost it on every save. Remote servers
+  declared with `transport` were rewritten as `type`. Both are preserved.
+- A config with two `mcpServers` blocks is now refused rather than edited, since
+  Brace and Claude Desktop would disagree about which one counts.
+- Working out your shell's PATH no longer runs on the main thread at first paint.
+
 ## 2.1.2 — 2026-09-03
 
 A pass over the remaining windows, checking each one when it is empty and when

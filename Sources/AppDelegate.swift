@@ -6,6 +6,10 @@ import AppKit
 /// document to auto-save, and the config file is only written when you press Save.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        CommandResolver.warmUp()
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store = ConfigStore.active, store.hasUnsavedChanges else {
             return .terminateNow

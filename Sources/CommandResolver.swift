@@ -48,21 +48,42 @@ enum CommandResolver {
         process.standardInput = FileHandle.nullDevice
         do {
             try process.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return String(decoding: data, as: UTF8.self)
-                .split(separator: ":")
-                .map(String.init)
-                .filter { !$0.isEmpty }
         } catch {
             return []
         }
+
+        // A shell profile can take a while, and this is reached from a view body.
+        // Give up rather than freeze the window.
+        var data = Data()
+        let finished = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            data = pipe.fileHandleForReading.readDataToEndOfFile()
+            finished.signal()
+        }
+        if finished.wait(timeout: .now() + 2) == .timedOut {
+            process.endAndReap()
+            return []
+        }
+        process.waitUntilExit()
+
+        return String(decoding: data, as: UTF8.self)
+            .split(separator: ":")
+            .map(String.init)
+            .filter { !$0.isEmpty }
     }()
 
     static let searchDirectories: [String] = {
         var seen = Set<String>()
         return (wellKnownDirectories + loginShellDirectories).filter { seen.insert($0).inserted }
     }()
+
+    /// Resolves the shell PATH ahead of the first view that needs it, so the cost
+    /// is paid off the main thread.
+    static func warmUp() {
+        DispatchQueue.global(qos: .utility).async {
+            _ = searchDirectories
+        }
+    }
 
     private static let lock = NSLock()
     private static var cache: [String: [CommandCandidate]] = [:]

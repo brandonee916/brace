@@ -10,6 +10,7 @@ struct TestSheet: View {
     @State private var isRunning = true
     @State private var showsLog = false
     @State private var task: Task<Void, Never>?
+    @State private var cancellation = TestCancellation()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -30,6 +31,9 @@ struct TestSheet: View {
                 Spacer()
                 if isRunning {
                     Button("Stop") {
+                        // Cancelling the Task alone left the server running to the
+                        // full timeout; the flag is what actually stops it.
+                        cancellation.cancel()
                         task?.cancel()
                         isRunning = false
                         result = TestResult(status: .noResponse, headline: "Stopped",
@@ -48,7 +52,10 @@ struct TestSheet: View {
         .frame(width: 620)
         .frame(minHeight: 240)
         .onAppear(perform: run)
-        .onDisappear { task?.cancel() }
+        .onDisappear {
+            cancellation.cancel()
+            task?.cancel()
+        }
     }
 
     private var running: some View {
@@ -202,8 +209,10 @@ struct TestSheet: View {
         result = nil
         progress = nil
         let target = server
+        cancellation = TestCancellation()
+        let handle = cancellation
         task = Task {
-            let outcome = await ServerTester.test(target) { update in
+            let outcome = await ServerTester.test(target, cancellation: handle) { update in
                 // Reported from the reader thread, so hop to the main actor.
                 Task { @MainActor in progress = update }
             }

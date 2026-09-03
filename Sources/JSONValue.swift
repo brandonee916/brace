@@ -104,11 +104,22 @@ extension JSONValue {
 }
 
 private struct JSONParser {
-    let scalars: [Character]
+    /// Unicode scalars, not Characters.
+    ///
+    /// Swift groups "\r\n" into one Character, which then equals neither "\r" nor
+    /// "\n" — so a config saved with Windows line endings failed to parse at the
+    /// first line break. A combining mark after a quote behaved the same way.
+    let scalars: [Unicode.Scalar]
     var index: Int = 0
 
+    /// Guards against a stack overflow on deeply nested input. Registry and GitHub
+    /// replies are parsed on background threads with far smaller stacks than the
+    /// main one, so a hostile reply could crash the app outright.
+    var depth = 0
+    static let maximumDepth = 256
+
     init(text: String) {
-        scalars = Array(text)
+        scalars = Array(text.unicodeScalars)
     }
 
     var isAtEnd: Bool { index >= scalars.count }
@@ -153,7 +164,7 @@ private struct JSONParser {
     }
 
     mutating func expect(_ word: String) throws {
-        for character in word {
+        for character in word.unicodeScalars {
             guard index < scalars.count, scalars[index] == character else {
                 throw error("expected '\(word)'")
             }
@@ -162,6 +173,11 @@ private struct JSONParser {
     }
 
     mutating func parseObject() throws -> JSONValue {
+        depth += 1
+        defer { depth -= 1 }
+        guard depth <= Self.maximumDepth else {
+            throw error("nested too deeply (more than \(Self.maximumDepth) levels)")
+        }
         index += 1 // consume '{'
         var pairs: [(key: String, value: JSONValue)] = []
         try skipWhitespace()
@@ -197,6 +213,11 @@ private struct JSONParser {
     }
 
     mutating func parseArray() throws -> JSONValue {
+        depth += 1
+        defer { depth -= 1 }
+        guard depth <= Self.maximumDepth else {
+            throw error("nested too deeply (more than \(Self.maximumDepth) levels)")
+        }
         index += 1 // consume '['
         var values: [JSONValue] = []
         try skipWhitespace()
@@ -243,13 +264,13 @@ private struct JSONParser {
                 case "t": result.append("\t")
                 case "u":
                     let scalar = try parseUnicodeEscape()
-                    result.append(scalar)
+                    result.unicodeScalars.append(scalar)
                 default: throw error("unsupported escape '\\\(scalars[index])'")
                 }
                 index += 1
                 continue
             }
-            result.append(character)
+            result.unicodeScalars.append(character)
             index += 1
         }
         throw error("unterminated string")
@@ -257,7 +278,7 @@ private struct JSONParser {
 
     /// Reads the four hex digits after `\u`, joining surrogate pairs so that
     /// emoji and other astral-plane characters survive a round trip.
-    mutating func parseUnicodeEscape() throws -> Character {
+    mutating func parseUnicodeEscape() throws -> Unicode.Scalar {
         let high = try parseHexQuad()
         if high >= 0xD800, high <= 0xDBFF,
            index + 6 < scalars.count,
@@ -268,12 +289,12 @@ private struct JSONParser {
             if low >= 0xDC00, low <= 0xDFFF {
                 let combined = 0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)
                 guard let scalar = Unicode.Scalar(combined) else { throw error("invalid surrogate pair") }
-                return Character(scalar)
+                return scalar
             }
             index = saved
         }
         guard let scalar = Unicode.Scalar(high) else { throw error("invalid \\u escape") }
-        return Character(scalar)
+        return scalar
     }
 
     mutating func parseHexQuad() throws -> Int {
@@ -281,7 +302,7 @@ private struct JSONParser {
         for _ in 0..<4 {
             index += 1
             guard index < scalars.count else { throw error("incomplete \\u escape") }
-            digits.append(scalars[index])
+            digits.unicodeScalars.append(scalars[index])
         }
         guard let value = Int(digits, radix: 16) else { throw error("invalid hex in \\u escape") }
         return value
@@ -290,17 +311,17 @@ private struct JSONParser {
     mutating func parseNumber() throws -> JSONValue {
         let start = index
         if index < scalars.count, scalars[index] == "-" { index += 1 }
-        while index < scalars.count, scalars[index].isNumber { index += 1 }
+        while index < scalars.count, scalars[index].properties.numericType != nil { index += 1 }
         if index < scalars.count, scalars[index] == "." {
             index += 1
-            while index < scalars.count, scalars[index].isNumber { index += 1 }
+            while index < scalars.count, scalars[index].properties.numericType != nil { index += 1 }
         }
         if index < scalars.count, scalars[index] == "e" || scalars[index] == "E" {
             index += 1
             if index < scalars.count, scalars[index] == "+" || scalars[index] == "-" { index += 1 }
-            while index < scalars.count, scalars[index].isNumber { index += 1 }
+            while index < scalars.count, scalars[index].properties.numericType != nil { index += 1 }
         }
-        let text = String(scalars[start..<index])
+        let text = String(String.UnicodeScalarView(scalars[start..<index]))
         guard !text.isEmpty, Double(text) != nil else {
             index = start
             throw error("expected a value")
@@ -316,6 +337,16 @@ extension JSONValue {
         var output = ""
         write(to: &output, indent: 0, pretty: pretty)
         return output
+    }
+
+    /// How deeply this value nests. Used to refuse to serialise something that
+    /// would overflow the stack on the way out.
+    var nestingDepth: Int {
+        switch self {
+        case .array(let values): return 1 + (values.map(\.nestingDepth).max() ?? 0)
+        case .object(let pairs): return 1 + (pairs.map(\.value.nestingDepth).max() ?? 0)
+        default: return 0
+        }
     }
 
     private func write(to output: inout String, indent: Int, pretty: Bool) {

@@ -23,6 +23,10 @@ final class ConfigStore: ObservableObject {
     /// tell whether somebody else has touched the part we own.
     private var loadedServersJSON: String = ""
 
+    /// The switched-off servers as they were when we read them, so the sidecar
+    /// gets the same conflict check the config does.
+    private var loadedDisabledJSON: String = ""
+
 
     /// Where Claude Desktop keeps its configuration.
     ///
@@ -54,8 +58,13 @@ final class ConfigStore: ObservableObject {
     /// The directory is injectable so the save path can be exercised against a
     /// scratch copy instead of the live config.
     init(directory: URL = ConfigStore.claudeSupportDirectory) {
+        // Resolve symlinks: people keep this file in a dotfiles repo and link to
+        // it. An atomic write renames over the link, which would silently replace
+        // it with a regular file and leave the real config untouched.
         configURL = directory.appendingPathComponent("claude_desktop_config.json")
+            .resolvingSymlinksInPath()
         disabledURL = directory.appendingPathComponent("mcp-manager-disabled.json")
+            .resolvingSymlinksInPath()
         backupDirectory = directory.appendingPathComponent("MCP Manager Backups")
         ConfigStore.active = self
     }
@@ -79,8 +88,17 @@ final class ConfigStore: ObservableObject {
                 let text = try String(contentsOf: configURL, encoding: .utf8)
                 lastLoadedText = text
                 let parsed = try JSONValue.parse(text)
-                guard parsed.objectPairs != nil else {
+                guard let topLevel = parsed.objectPairs else {
                     loadError = "The config file's top level isn't a JSON object."
+                    return
+                }
+                // JSON parsers disagree about repeated keys — JavaScript keeps the
+                // last, we keep the first — so we would edit a block Claude Desktop
+                // ignores. Refuse rather than silently pick a side.
+                var seenKeys = Set<String>()
+                if let duplicate = topLevel.map(\.key).first(where: { !seenKeys.insert($0).inserted }) {
+                    loadError = "The config file has more than one \"\(duplicate)\" entry at the top level. "
+                        + "Different tools disagree about which one wins, so fix that in a text editor first."
                     return
                 }
                 root = parsed
@@ -108,12 +126,15 @@ final class ConfigStore: ObservableObject {
         var disabledServers: [MCPServer] = []
         if let text = try? String(contentsOf: disabledURL, encoding: .utf8),
            let parsed = try? JSONValue.parse(text) {
+            loadedDisabledJSON = parsed["mcpServers"]?.serialized() ?? ""
             for pair in parsed["mcpServers"]?.objectPairs ?? [] {
                 var server = MCPServer(name: pair.key, json: pair.value)
                 server.enabled = false
                 disabledServers.append(server)
             }
         }
+
+        if !manager.fileExists(atPath: disabledURL.path) { loadedDisabledJSON = "" }
 
         servers = (enabledServers + disabledServers)
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
@@ -124,7 +145,24 @@ final class ConfigStore: ObservableObject {
 
     @discardableResult
     func save() -> Bool {
-        let named = servers.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
+        // Refuse outright if the file we loaded could not be understood. Writing
+        // now would replace a config we never read with one built from an empty
+        // root, taking every existing server and Claude Desktop's own settings
+        // with it.
+        guard loadError == nil else {
+            statusMessage = "Can't save while the config file has a syntax error. "
+                + "Fix it in a text editor, or restore a backup, then choose Reload from Disk."
+            return false
+        }
+
+        // A blank name used to drop the server silently, along with its secrets.
+        if let unnamed = servers.first(where: { $0.name.trimmingCharacters(in: .whitespaces).isEmpty }) {
+            _ = unnamed
+            statusMessage = "Can't save: one of the servers has no name."
+            return false
+        }
+
+        let named = servers
         var seen = Set<String>()
         for server in named where !seen.insert(server.name).inserted {
             statusMessage = "Can't save: two servers are both named \"\(server.name)\"."
@@ -132,25 +170,46 @@ final class ConfigStore: ObservableObject {
         }
 
         // Claude Desktop rewrites this file on its own schedule — it stores its
-        // preferences here too. Writing our in-memory copy would quietly revert
-        // anything it changed while we were open, so re-read first and build on
-        // what's actually on disk.
-        if let currentText = try? String(contentsOf: configURL, encoding: .utf8),
-           currentText != lastLoadedText,
-           let currentRoot = try? JSONValue.parse(currentText),
-           currentRoot.objectPairs != nil {
-            let theirServers = currentRoot["mcpServers"]?.serialized() ?? ""
-            guard theirServers == loadedServersJSON else {
-                // Someone changed the servers themselves. Overwriting would lose
-                // their edit, and merging two sets of changes isn't ours to guess.
-                statusMessage = "The config file changed since you opened it — its MCP servers "
-                    + "are no longer the ones shown here. Choose Reload from Disk to pick up the "
-                    + "change, then make your edits again."
+        // preferences here too. Build on what is actually on disk, and fail closed
+        // if that cannot be read: unreadable is exactly when writing is riskiest.
+        let manager = FileManager.default
+        if manager.fileExists(atPath: configURL.path) {
+            guard let currentText = try? String(contentsOf: configURL, encoding: .utf8) else {
+                statusMessage = "Can't save: the config file can't be read right now."
                 return false
             }
-            // Only the parts we don't own changed, so adopt them and carry on.
-            root = currentRoot
-            fileOrder = currentRoot["mcpServers"]?.objectPairs?.map(\.key) ?? fileOrder
+            guard let currentRoot = try? JSONValue.parse(currentText),
+                  currentRoot.objectPairs != nil else {
+                statusMessage = "Can't save: the config file on disk is no longer valid JSON — "
+                    + "something else may have written it. Choose Reload from Disk to see it."
+                return false
+            }
+            if currentText != lastLoadedText {
+                let theirServers = currentRoot["mcpServers"]?.serialized() ?? ""
+                guard theirServers == loadedServersJSON else {
+                    // Someone changed the servers themselves. Overwriting would lose
+                    // their edit, and merging two sets of changes isn't ours to guess.
+                    statusMessage = "The config file changed since you opened it — its MCP servers "
+                        + "are no longer the ones shown here. Choose Reload from Disk to pick up the "
+                        + "change, then make your edits again."
+                    return false
+                }
+                // Only the parts we don't own changed, so adopt them and carry on.
+                root = currentRoot
+                fileOrder = currentRoot["mcpServers"]?.objectPairs?.map(\.key) ?? fileOrder
+            }
+        }
+
+        // The sidecar holds the settings of switched-off servers, so it deserves
+        // the same conflict check as the config itself.
+        if manager.fileExists(atPath: disabledURL.path) {
+            let currentSidecar = (try? String(contentsOf: disabledURL, encoding: .utf8))
+                .flatMap { try? JSONValue.parse($0) }?["mcpServers"]?.serialized() ?? ""
+            guard currentSidecar == loadedDisabledJSON else {
+                statusMessage = "The list of switched-off servers changed since you opened it. "
+                    + "Choose Reload from Disk, then make your edits again."
+                return false
+            }
         }
 
         do {
@@ -168,14 +227,16 @@ final class ConfigStore: ObservableObject {
                     return a < b
                 }
                 .map { (key: $0.element.name, value: $0.element.jsonValue) }
-            root["mcpServers"] = .object(enabledPairs)
-            fileOrder = enabledPairs.map(\.key)
-            try writeAtomically(root.serialized() + "\n", to: configURL)
 
+            // The sidecar is written first. If the second write fails, a disabled
+            // server exists in both files rather than in neither — duplicated is
+            // recoverable, lost is not.
             let disabledPairs = named.filter { !$0.enabled }
                 .map { (key: $0.name, value: $0.jsonValue) }
             if disabledPairs.isEmpty {
-                try? FileManager.default.removeItem(at: disabledURL)
+                if manager.fileExists(atPath: disabledURL.path) {
+                    try manager.removeItem(at: disabledURL)
+                }
             } else {
                 let sidecar = JSONValue.object([
                     (key: "_comment", value: .string("Servers turned off in Brace. Claude Desktop never reads this file.")),
@@ -183,6 +244,11 @@ final class ConfigStore: ObservableObject {
                 ])
                 try writeAtomically(sidecar.serialized() + "\n", to: disabledURL)
             }
+            loadedDisabledJSON = JSONValue.object(disabledPairs).serialized()
+
+            root["mcpServers"] = .object(enabledPairs)
+            fileOrder = enabledPairs.map(\.key)
+            try writeAtomically(root.serialized() + "\n", to: configURL)
 
             lastLoadedText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? lastLoadedText
             loadedServersJSON = root["mcpServers"]?.serialized() ?? loadedServersJSON
@@ -221,6 +287,11 @@ final class ConfigStore: ObservableObject {
         try manager.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
 
         let formatter = DateFormatter()
+        // A fixed locale: otherwise a Thai or Arabic system writes names this code
+        // can't read back, and pruning then sorts by the wrong date.
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd HHmmss"
         let stamp = formatter.string(from: Date())
 
@@ -243,7 +314,17 @@ final class ConfigStore: ObservableObject {
             }
             suffix += 1
         }
-        try manager.copyItem(at: configURL, to: url(for: suffix))
+        // Write the bytes rather than copying the item: copyItem duplicates a
+        // symlink, which would make the "backup" a pointer at the file it is
+        // supposed to protect.
+        try current.write(to: url(for: suffix), options: .atomic)
+
+        // Switched-off servers live only in the sidecar, so back that up too or
+        // they have no recovery path at all.
+        if let sidecar = try? Data(contentsOf: disabledURL) {
+            let name = "mcp-manager-disabled \(stamp)\(suffix == 1 ? "" : " (\(suffix))").json"
+            try? sidecar.write(to: backupDirectory.appendingPathComponent(name), options: .atomic)
+        }
         pruneBackups(keeping: backupRetention)
     }
 
@@ -281,7 +362,9 @@ final class ConfigStore: ObservableObject {
     /// date; without the sequence, ties would order arbitrarily.
     nonisolated static func backupOrder(of url: URL) -> (date: Date, sequence: Int) {
         let name = url.deletingPathExtension().lastPathComponent
-        var stamp = name.replacingOccurrences(of: "claude_desktop_config ", with: "")
+        var stamp = name
+            .replacingOccurrences(of: "claude_desktop_config ", with: "")
+            .replacingOccurrences(of: "mcp-manager-disabled ", with: "")
 
         var sequence = 1
         if let match = stamp.range(of: #"\s+\((\d+)\)$"#, options: .regularExpression) {
@@ -291,6 +374,8 @@ final class ConfigStore: ObservableObject {
         }
 
         let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd HHmmss"
         if let date = formatter.date(from: stamp) { return (date, sequence) }
         let fallback = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -304,7 +389,7 @@ final class ConfigStore: ObservableObject {
             includingPropertiesForKeys: [.contentModificationDateKey]
         ) else { return [] }
         return files
-            .filter { $0.pathExtension == "json" }
+            .filter { $0.pathExtension == "json" && $0.lastPathComponent.hasPrefix("claude_desktop_config") }
             .sorted { lhs, rhs in
                 let left = Self.backupOrder(of: lhs)
                 let right = Self.backupOrder(of: rhs)
@@ -378,14 +463,34 @@ final class ConfigStore: ObservableObject {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: backupDirectory.path)
     }
 
+    /// Puts a backup's MCP servers back, leaving everything else alone.
+    ///
+    /// Only the servers: the rest of the file is Claude Desktop's, and rolling its
+    /// preferences back to whenever the backup was taken is not what the button
+    /// says it does.
     func restore(from backup: URL) {
         do {
             let text = try String(contentsOf: backup, encoding: .utf8)
-            _ = try JSONValue.parse(text) // refuse to restore something broken
+            let parsed = try JSONValue.parse(text)
+            guard let restoredServers = parsed["mcpServers"] else {
+                statusMessage = "That backup has no MCP servers in it."
+                return
+            }
             try backupCurrentConfig()
-            try writeAtomically(text, to: configURL)
+
+            var target: JSONValue
+            if let currentText = try? String(contentsOf: configURL, encoding: .utf8),
+               let currentRoot = try? JSONValue.parse(currentText),
+               currentRoot.objectPairs != nil {
+                target = currentRoot
+            } else {
+                target = parsed
+            }
+            target["mcpServers"] = restoredServers
+            try writeAtomically(target.serialized() + "\n", to: configURL)
             load()
-            statusMessage = "Restored \(backup.lastPathComponent). Restart Claude Desktop to apply."
+            statusMessage = "Restored the servers from \(backup.lastPathComponent). "
+                + "Restart Claude Desktop to apply."
         } catch {
             statusMessage = "Couldn't restore that backup: \(error.localizedDescription)"
         }

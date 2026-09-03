@@ -145,19 +145,51 @@ enum Validator {
     // MARK: - Safety
 
     /// Programs whose whole purpose is to run whatever you hand them.
+    ///
+    /// Compared after stripping a trailing version, so `python3.12` and `perl5.34`
+    /// are caught along with `python` and `perl`.
     private static let interpreters: Set<String> = [
-        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
-        "python", "python2", "python3", "ruby", "perl", "php", "lua",
-        "node", "deno", "bun", "osascript", "swift", "Rscript", "env",
+        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh", "pwsh", "powershell",
+        "python", "ruby", "perl", "php", "lua", "tclsh", "awk", "gawk", "sed",
+        "node", "deno", "bun", "osascript", "swift", "rscript", "julia", "elixir",
     ]
 
-    /// Flags that mean "the next argument is code, not a filename".
-    private static let inlineCodeFlags: Set<String> = [
-        "-c", "-e", "-E", "--eval", "-eval", "--command", "--exec", "-exec",
+    /// Programs that exist to run another program, so the real command is further
+    /// along the argument list.
+    private static let wrappers: Set<String> = ["env", "arch", "nice", "time", "xargs", "sudo", "doas", "script"]
+
+    /// Flags that mean "what follows is code, not a filename". Matched by prefix so
+    /// `-ec`, `--eval=…` and `-e` are all covered.
+    private static let inlineCodeFlags = ["-c", "-e", "-E", "--eval", "--command", "--exec", "--run"]
+
+    /// Arguments that redirect where a package manager fetches code from.
+    private static let sourceOverrideFlags = [
+        "--registry", "--index", "--index-url", "--extra-index-url", "--repo",
+        "--find-links", "--default-index",
+    ]
+
+    /// Environment variables that change what gets downloaded or loaded into the
+    /// process, which is another way to run code without naming an interpreter.
+    private static let dangerousEnvironmentKeys: Set<String> = [
+        "dyld_insert_libraries", "dyld_library_path", "dyld_framework_path",
+        "ld_preload", "ld_library_path",
+        "node_options", "nodepath", "node_path",
+        "pythonpath", "pythonstartup", "pythonhome",
+        "perl5lib", "perl5opt", "rubyopt", "rubylib",
+        "npm_config_registry", "yarn_registry", "uv_index_url", "uv_extra_index_url",
+        "pip_index_url", "pip_extra_index_url", "uv_default_index",
+        "gem_source", "bundle_mirror",
     ]
 
     /// Flags a server config should never need, because they fetch and run code.
     private static let downloadAndRunMarkers = ["| sh", "| bash", "|sh", "|bash", "curl ", "wget "]
+
+    /// The interpreter name with any trailing version removed: `python3.12` → `python`.
+    private static func baseName(of program: String) -> String {
+        var name = (program as NSString).lastPathComponent.lowercased()
+        while let last = name.last, last.isNumber || last == "." { name.removeLast() }
+        return name.isEmpty ? (program as NSString).lastPathComponent.lowercased() : name
+    }
 
     /// Looks for the shape of a snippet that runs arbitrary code rather than
     /// starting a server.
@@ -171,10 +203,37 @@ enum Validator {
         guard server.kind == .local else { return [] }
         var issues: [Issue] = []
 
-        let program = (server.command as NSString).lastPathComponent
-        let args = server.args.map(\.value).filter { !$0.isEmpty }
+        var args = server.args.map(\.value).filter { !$0.isEmpty }
+        var program = baseName(of: server.command)
 
-        if interpreters.contains(program), args.contains(where: { inlineCodeFlags.contains($0) }) {
+        // Step past wrappers so `env python -c …` is judged on python, not env.
+        while wrappers.contains(program), let next = args.first(where: { !$0.hasPrefix("-") && !$0.contains("=") }) {
+            program = baseName(of: next)
+            args = Array(args.drop(while: { $0 != next }).dropFirst())
+        }
+
+        for pair in server.env where dangerousEnvironmentKeys.contains(pair.key.lowercased()) {
+            issues.append(Issue(
+                level: .warning,
+                message: "\(pair.key) changes what code this server loads or downloads. "
+                    + "That is a way to run something other than the server itself — only keep it if you know why it's there."
+            ))
+        }
+
+        if let override = args.first(where: { arg in
+            sourceOverrideFlags.contains { arg == $0 || arg.hasPrefix($0 + "=") }
+        }) {
+            issues.append(Issue(
+                level: .warning,
+                message: "\(override) points the package manager at a different source, so the code that runs "
+                    + "won't be what the public registry publishes. Only keep it if that's deliberate."
+            ))
+        }
+
+        if interpreters.contains(program),
+           args.contains(where: { arg in inlineCodeFlags.contains { arg == $0 || arg.hasPrefix($0 + "=") }
+               || (arg.hasPrefix("-") && !arg.hasPrefix("--") && arg.count <= 4
+                   && arg.dropFirst().contains(where: { $0 == "c" || $0 == "e" })) }) {
             issues.append(Issue(
                 level: .warning,
                 message: "This doesn't start a server — it hands a block of code to \"\(program)\" to run. "

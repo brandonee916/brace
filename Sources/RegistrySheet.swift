@@ -153,6 +153,10 @@ struct RegistrySheet: View {
                     if let package = chosenPackage(for: server) {
                         if package.isSupported {
                             previewRow(for: server, package: package)
+                            let preview = MCPServer(registry: server, package: package)
+                            ForEach(Validator.safetyIssues(for: preview)) { issue in
+                                note(issue.message, symbol: "exclamationmark.shield.fill", tint: .orange)
+                            }
                             if !package.environmentVariables.isEmpty {
                                 environmentRows(package)
                             }
@@ -171,8 +175,11 @@ struct RegistrySheet: View {
                         )
                     }
 
-                    if let repo = server.repositoryURL {
-                        Link(destination: URL(string: repo) ?? RegistryClient.baseURL) {
+                    // Only http(s): the URL comes from the entry's author.
+                    if let repo = server.repositoryURL,
+                       let repoURL = URL(string: repo),
+                       repoURL.scheme == "https" || repoURL.scheme == "http" {
+                        Link(destination: repoURL) {
                             Label("View the source repository", systemImage: "arrow.up.forward.square")
                                 .font(.callout)
                         }

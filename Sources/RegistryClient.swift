@@ -36,10 +36,20 @@ struct RegistryPackage: Hashable {
     let packageArguments: [RegistryArgument]
     let environmentVariables: [RegistryEnvironmentVariable]
 
+    /// Launchers a registry entry is allowed to ask for.
+    ///
+    /// `runtimeHint` is published by whoever wrote the entry, so taking it at face
+    /// value would let a listing nominate any program on the machine — including
+    /// an absolute path of its choosing.
+    static let allowedRuntimes: Set<String> = ["uvx", "npx", "pipx", "bunx", "deno"]
+
     /// The launcher this package needs. `runtimeHint` is usually absent, so it's
     /// inferred from the package registry.
     var runtime: String? {
-        if let runtimeHint, !runtimeHint.isEmpty { return runtimeHint }
+        if let runtimeHint, !runtimeHint.isEmpty,
+           Self.allowedRuntimes.contains((runtimeHint as NSString).lastPathComponent) {
+            return (runtimeHint as NSString).lastPathComponent
+        }
         switch registryType {
         case "pypi": return "uvx"
         case "npm": return "npx"

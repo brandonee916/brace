@@ -94,6 +94,10 @@ struct TestSheet: View {
                 .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
                 .transition(.opacity)
             }
+
+            if let addresses = progress?.reachability, !addresses.isEmpty {
+                addressList(addresses, showsCaption: false)
+            }
         }
         .animation(.easeInOut(duration: 0.15), value: progress?.stage)
     }
@@ -108,7 +112,7 @@ struct TestSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: symbol(result.status))
-                    .foregroundStyle(tint(result.status))
+                    .foregroundStyle(tint(result))
                     .font(.title3)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(result.headline).font(.headline)
@@ -134,6 +138,10 @@ struct TestSheet: View {
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
+            }
+
+            if !result.reachability.isEmpty {
+                addressList(result.reachability, showsCaption: true)
             }
 
             if !result.downstreamNotes.isEmpty {
@@ -175,6 +183,34 @@ struct TestSheet: View {
         }
     }
 
+    /// Shown both during a run and in the result, so a slow server doesn't hold
+    /// back an answer that's already in.
+    @ViewBuilder
+    private func addressList(_ addresses: [Reachability], showsCaption: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label("Addresses in this server's settings", systemImage: "network")
+                .font(.subheadline.weight(.medium))
+            ForEach(addresses, id: \.self) { address in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: address.isReachable ? "checkmark.circle" : "xmark.circle")
+                        .foregroundStyle(address.isReachable ? Color.green : Color.orange)
+                        .font(.caption)
+                    Text(address.summary)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            if showsCaption {
+                Text("This opens a connection to each address your settings name and closes it again — nothing is sent. One that doesn't answer usually means you're away from that network, not that the config is wrong.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
     private func detailRow(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(label)
@@ -195,9 +231,11 @@ struct TestSheet: View {
         }
     }
 
-    private func tint(_ status: TestResult.Status) -> Color {
-        switch status {
-        case .responded: return .green
+    private func tint(_ result: TestResult) -> Color {
+        switch result.status {
+        // Green claims the whole thing works, which needs the network check to
+        // have come back clean too — not just the handshake.
+        case .responded: return result.hasDownstreamTrouble ? .orange : .green
         case .wontStart: return .red
         case .noResponse: return .orange
         }

@@ -77,11 +77,23 @@ the full definition — env vars included — waits intact for you to switch it 
 **Test a server before trusting it.** **Test Connection** launches it exactly the
 way Claude Desktop would — same sparse environment — and completes an MCP handshake,
 then reports which of three things happened: it wouldn't start (your config is
-wrong, here's the output), it started and answered (you're good, here's what it
-calls itself and how many tools it offers), or it answered but reported trouble
-reaching something downstream. That last case is shown as information rather than
-an error, because a perfectly configured server still can't reach a controller
-you're not on the network with.
+wrong, here's the output), it started and answered (your config is right, here's
+what it calls itself and how many tools it offers), or it answered but something
+it depends on is out of reach.
+
+**And check that it can still reach what it talks to.** That last case is the one
+worth explaining. A stdio server that proxies to a Home Assistant, a controller or
+an internal API starts and handshakes perfectly well from a coffee shop, because
+none of that touches the network — so on its own, a green tick means rather less
+than it looks like. Alongside the handshake the app reads the addresses your
+settings already name — an `HA_URL`, a `UNIFI_HOST` and `UNIFI_PORT` pair, a
+`host:port` argument — opens a TCP connection to each and closes it again, and
+reports what answered — while the run is still going, since that answer arrives
+in about two seconds and a slow server shouldn't sit on it. Addresses on this Mac are skipped, since being off a
+network can't affect them. Nothing found this way is ever treated as a broken
+config: an address that doesn't answer turns the result amber rather than red,
+because being away from a network isn't a mistake — and where the app had to guess
+the port, it shows you the result but leaves the verdict alone.
 
 **Catch the mistakes that actually bite.** A dot in the sidebar shows each server's
 state — green is fine, amber is worth checking, red is broken, grey is disabled —
@@ -159,6 +171,7 @@ A failed update check is silent.
 | `Sources/CommandResolver.swift` | Finds every copy of a command, with versions. |
 | `Sources/RegistryClient.swift` | Talks to the MCP registry and maps entries to servers. |
 | `Sources/ServerTester.swift` | Launches a server and completes an MCP handshake. |
+| `Sources/EndpointProbe.swift` | Tries the addresses a server's own settings name. |
 | `Sources/UpdateChecker.swift` | Asks GitHub whether there's a newer release. |
 | `Sources/AboutView.swift` | The About window and release-notes sheet. |
 | `Sources/MCPServer.swift` | The server model and its JSON mapping. |
@@ -186,8 +199,9 @@ or not. Keep the copyright notice, and it comes with no warranty.
 ./test.sh
 ```
 
-Covers the JSON parser, the paste-import cleanup, command resolution, the model
-round-trip, the save path, and backup management. The config and backup tests run
+Covers the JSON parser, the paste-import cleanup, command resolution, address
+extraction for the reachability check, the model round-trip, the save path, and
+backup management. The config and backup tests run
 against a scratch copy of your real config, never the live one.
 
 ## Is it safe to paste a snippet from the internet?
@@ -199,6 +213,12 @@ expansion, no injection. Exactly three places start a process: a fixed
 `printf %s "$PATH"` to learn your shell's PATH, `<program> --version` when you open
 the **Find…** picker, and the configured command itself when you press **Test
 Connection**.
+
+Test Connection also opens a TCP connection to any address your server's own
+settings name, and closes it straight away. Nothing is sent and nothing is read —
+it only asks whether the address answers. Every address comes from your own
+config; the app never invents one, and it never contacts anything for a server you
+haven't asked it to test.
 
 The real risk isn't injection, though. A config file *names the program Claude will
 run*, so a snippet from somewhere untrustworthy can simply name an interpreter and

@@ -1033,8 +1033,95 @@ func testerSuite() {
           absolute.detail)
 }
 
+// MARK: - Reachability reads addresses out of the config rather than guessing at them
+
+func probeSuite() {
+    func server(env: [(String, String)] = [], args: [String] = []) -> MCPServer {
+        var server = MCPServer()
+        server.name = "probe"
+        server.command = "/bin/ls"
+        server.env = env.map { PairItem(key: $0.0, value: $0.1) }
+        server.args = args.map(ArgItem.init)
+        return server
+    }
+
+    let explicit = EndpointProbe.targets(in: server(env: [("HA_URL", "http://10.0.1.5:8123")]))
+    check("a URL with a port is probed exactly as written",
+          explicit.count == 1 && explicit[0].host == "10.0.1.5"
+              && explicit[0].ports == [8123] && explicit[0].portFromConfig,
+          "\(explicit)")
+
+    let implied = EndpointProbe.targets(in: server(env: [("HA_URL", "https://ha.example.com")]))
+    check("https with no port is probed on 443",
+          implied.count == 1 && implied[0].ports == [443] && implied[0].portFromConfig,
+          "\(implied)")
+
+    let paired = EndpointProbe.targets(in: server(env: [("UNIFI_HOST", "192.168.1.1"), ("UNIFI_PORT", "8443")]))
+    check("a host and its sibling PORT variable are read as one address",
+          paired.count == 1 && paired[0].host == "192.168.1.1"
+              && paired[0].ports == [8443] && paired[0].portFromConfig,
+          "\(paired)")
+
+    // The case that started this: a host on its own, with no port anywhere.
+    let bare = EndpointProbe.targets(in: server(env: [("UNIFI_HOST", "192.168.1.1")]))
+    check("a host with no port falls back to the web ports, and marks them a guess",
+          bare.count == 1 && bare[0].ports == EndpointProbe.assumedPorts && !bare[0].portFromConfig,
+          "\(bare)")
+
+    let bareAddress = EndpointProbe.targets(in: server(args: ["--endpoint", "ha.local:8123"]))
+    check("a bare host:port argument is found",
+          bareAddress.count == 1 && bareAddress[0].host == "ha.local" && bareAddress[0].ports == [8123],
+          "\(bareAddress)")
+
+    // Nothing else in a config should be mistaken for something to connect to.
+    let noise = EndpointProbe.targets(in: server(
+        env: [("HOME_DIR", "/Users/someone"), ("LOG_LEVEL", "debug"), ("API_KEY", "sk-abc.def")],
+        args: ["unifi-network-mcp@latest", "-y", "--verbose", "12:30"]
+    ))
+    check("ordinary settings aren't mistaken for addresses", noise.isEmpty, "\(noise)")
+
+    let loopback = EndpointProbe.targets(in: server(env: [
+        ("MCP_URL", "http://127.0.0.1:3000"), ("ALT_URL", "http://localhost:3000"),
+    ]))
+    check("addresses on this Mac are skipped", loopback.isEmpty, "\(loopback)")
+
+    var remote = server(env: [("X_HOST", "10.0.1.5")])
+    remote.kind = .remote
+    remote.url = "https://example.com/mcp"
+    check("a remote server isn't probed twice — its own test crosses the network",
+          EndpointProbe.targets(in: remote).isEmpty)
+
+    // What is, and isn't, enough to take the shine off a passing test.
+    var answered = TestResult(status: .responded, headline: "h", detail: "d")
+    check("a clean handshake stays green", !answered.hasDownstreamTrouble)
+
+    answered.downstreamNotes = ["ERROR connecting to controller: No route to host"]
+    check("a server saying it can't connect turns the result amber", answered.hasDownstreamTrouble)
+
+    var guessed = TestResult(status: .responded, headline: "h", detail: "d")
+    guessed.reachability = [Reachability(
+        host: "192.168.1.1", source: "UNIFI_HOST", reachedPort: nil,
+        triedPorts: [443, 80], portFromConfig: false, failure: "No route to host"
+    )]
+    check("a guessed port that doesn't answer is shown, but doesn't downgrade the result",
+          !guessed.hasDownstreamTrouble)
+
+    var named = TestResult(status: .responded, headline: "h", detail: "d")
+    named.reachability = [Reachability(
+        host: "10.0.1.5", source: "HA_URL", reachedPort: nil,
+        triedPorts: [8123], portFromConfig: true, failure: "No route to host"
+    )]
+    check("an address the config itself named, unreachable, does downgrade it",
+          named.hasDownstreamTrouble)
+    check("and the line names the address and the reason",
+          named.reachability[0].summary.contains("10.0.1.5:8123")
+              && named.reachability[0].summary.contains("No route to host"),
+          named.reachability[0].summary)
+}
+
 reviewSuite()
 testerSuite()
+probeSuite()
 safetySuite()
 updateSuite()
 registrySuite()

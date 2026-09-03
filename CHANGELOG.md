@@ -1,5 +1,44 @@
 # Release Notes
 
+## 2.4.0 — 2026-09-03
+
+**Test Connection now tells you when a server can't reach what it talks to.**
+
+A local server that proxies to something on your network — Home Assistant, a
+controller, an internal API — starts and completes an MCP handshake perfectly
+well when you're nowhere near that network, because none of that touches it. The
+test passed, said "your configuration works", and showed a green tick, while
+every actual tool call was going to fail. It was answering a narrower question
+than it appeared to.
+
+- **The addresses in your own settings are now tried.** Alongside the handshake,
+  the app reads the addresses your config already names — an `HA_URL`, a
+  `UNIFI_HOST` and `UNIFI_PORT` pair, a `host:port` argument — opens a TCP
+  connection to each and closes it again. Nothing is sent. Each one is reported
+  by the setting it came from, with the system's own reason when it doesn't
+  answer. Addresses on this Mac are skipped: being off a network can't affect
+  them, and many servers start their own backend on demand anyway. The whole
+  check runs beside the handshake and is bounded at two seconds, so a passing
+  test is no slower than it was.
+
+- **You see the answer while the test is still running.** The network check
+  finishes in about two seconds; the handshake can take minutes. Holding the
+  result back until the run ended would have withheld it for the whole wait, in
+  exactly the situation it exists for — so the addresses appear as soon as
+  they're known, and the progress line names the one that isn't answering
+  instead of leaving you watching a spinner.
+
+- **A result that passed but can't reach anything is amber, not green.** Only an
+  address whose port your config actually gave us counts for that. Where the app
+  had to guess the port, the line is still shown but the verdict is left alone —
+  it shouldn't downgrade your config on the strength of its own assumption. None
+  of this is ever red: being away from a network is not a configuration error.
+
+- **A passing test says what it actually proved.** "Your configuration works" has
+  become "your configuration is right: it starts and speaks MCP — that's as far
+  as a handshake goes". A remote server, whose test really does cross the
+  network, now says so instead.
+
 ## 2.3.0 — 2026-09-03
 
 Two fixes from the same audit, both found by actually running the app rather

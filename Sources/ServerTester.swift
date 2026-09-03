@@ -24,7 +24,36 @@ struct TestResult {
     /// Things the server complained about after starting successfully — surfaced
     /// as information, since they're usually about the service, not the config.
     var downstreamNotes: [String] = []
+    /// What happened when this app tried to open a socket to the addresses the
+    /// config itself names. Information, never a verdict — see `EndpointProbe`.
+    var reachability: [Reachability] = []
     var log: String = ""
+
+    /// True when the server answered but something it depends on looks out of
+    /// reach — either because it said so, or because we couldn't reach an
+    /// address its own settings name.
+    ///
+    /// Only an address whose port the config actually gave us counts here. A
+    /// guessed port failing is worth showing and not worth downgrading a green
+    /// result over: this app shouldn't go amber on the strength of its own
+    /// assumption about which port a service listens on.
+    var hasDownstreamTrouble: Bool {
+        if reachability.contains(where: { !$0.isReachable && $0.portFromConfig }) { return true }
+        return downstreamNotes.contains { note in
+            let lowered = note.lowercased()
+            return TestResult.connectionTrouble.contains { lowered.contains($0) }
+        }
+    }
+
+    /// What a server sounds like when it can't reach its own backend.
+    private static let connectionTrouble = [
+        "connection refused", "connection reset", "connection error",
+        "cannot connect", "can't connect", "could not connect",
+        "unable to connect", "failed to connect", "unreachable", "no route",
+        "timed out", "timeout", "network is down", "name or service not known",
+        "nodename nor servname", "getaddrinfo",
+        "econnrefused", "ehostunreach", "enetunreach", "etimedout",
+    ]
 }
 
 /// Live progress while a test runs, so a slow first launch doesn't look frozen.
@@ -33,6 +62,13 @@ struct TestProgress: Sendable {
     /// The most recent thing the server printed, if anything yet.
     var lastLine: String?
     var elapsed: TimeInterval
+    /// Addresses already tried, shown while the handshake is still going.
+    ///
+    /// These land in about two seconds. Waiting for the run to finish before
+    /// showing them would hold the answer back for the whole timeout in exactly
+    /// the case it was written for: away from the network, where the server
+    /// hangs for three minutes trying to reach something that isn't there.
+    var reachability: [Reachability] = []
 }
 
 /// Lets the UI stop a test that is already running.
@@ -131,17 +167,49 @@ enum ServerTester {
             )
         }
 
-        return await withCheckedContinuation { continuation in
+        // Started alongside the handshake rather than after it, so checking the
+        // network costs no extra wall-clock — and published into a box the
+        // handshake's progress reports read, so the answer reaches the screen
+        // the moment it exists rather than whenever the run happens to end.
+        let live = Locked<[Reachability]>([])
+        async let reachability: [Reachability] = {
+            let found = await EndpointProbe.check(server)
+            live.mutate { $0 = found }
+            return found
+        }()
+        var result = await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout, cancellation: cancellation, onProgress: onProgress))
+                continuation.resume(returning: runHandshake(server, executable: resolved, timeout: timeout, reachability: live, cancellation: cancellation, onProgress: onProgress))
             }
         }
+        result.reachability = await reachability
+        return reframe(result)
+    }
+
+    /// Softens a green result when the server, or the network, says otherwise.
+    ///
+    /// "Your configuration works" under a green tick was true but read as
+    /// "everything is fine", which is a much larger claim than a handshake can
+    /// support. A server that starts perfectly and cannot reach a thing scored
+    /// the same clean tick as a healthy one — and a pass that can't tell those
+    /// apart is a pass worth ignoring.
+    private static func reframe(_ result: TestResult) -> TestResult {
+        guard result.status == .responded, result.hasDownstreamTrouble else { return result }
+        var softened = result
+        softened.headline = "It started and answered, but something it needs is out of reach"
+        softened.detail = """
+            Your configuration is right — that part passed. What's below is about \
+            the service itself, and being away from its network is enough to \
+            explain it.
+            """
+        return softened
     }
 
     private static func runHandshake(
         _ server: MCPServer,
         executable: String,
         timeout: TimeInterval,
+        reachability: Locked<[Reachability]> = Locked([]),
         cancellation: TestCancellation,
         onProgress: @escaping @Sendable (TestProgress) -> Void
     ) -> TestResult {
@@ -271,7 +339,8 @@ enum ServerTester {
                 onProgress(TestProgress(
                     stage: stage,
                     lastLine: lastMeaningfulLine(in: errorBuffer.value),
-                    elapsed: Date().timeIntervalSince(started)
+                    elapsed: Date().timeIntervalSince(started),
+                    reachability: reachability.value
                 ))
             }
 
@@ -286,8 +355,17 @@ enum ServerTester {
                 send(#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
                 send(#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#)
             } else if !askedForTools, !errorBuffer.value.isEmpty,
-                      stage == "Waiting for the server to start…" {
+                      stage.hasPrefix("Waiting for the server to start") {
                 stage = "It's running — waiting for it to answer the handshake…"
+            }
+
+            // Once we know an address it was given doesn't answer, a long silence
+            // has an obvious explanation and there's no reason to make someone
+            // sit through the timeout wondering.
+            if !askedForTools,
+               let stranded = reachability.value.first(where: { !$0.isReachable && $0.portFromConfig }),
+               !stage.contains("isn't answering") {
+                stage = "It's running, but \(stranded.host):\(stranded.triedPorts[0]) isn't answering — still waiting…"
             }
 
             if initializeReply != nil, toolCount != nil { break }
@@ -319,7 +397,11 @@ enum ServerTester {
         return finish(process, (input, output, errors), errorBuffer, pending, TestResult(
             status: .responded,
             headline: "The server started and answered",
-            detail: "Your configuration works. Anything below is what the server itself reported.",
+            detail: """
+                Your configuration is right: it starts and speaks MCP. That's as far \
+                as a handshake goes — it doesn't prove the server can reach whatever \
+                it talks to.
+                """,
             serverName: info?["name"]?.stringValue,
             serverVersion: info?["version"]?.stringValue,
             protocolVersion: result["protocolVersion"]?.stringValue,
@@ -471,7 +553,7 @@ enum ServerTester {
             return TestResult(
                 status: .responded,
                 headline: "The server answered",
-                detail: "Your configuration works.",
+                detail: "Your configuration works, and this Mac can reach it right now.",
                 serverName: info?["name"]?.stringValue,
                 serverVersion: info?["version"]?.stringValue,
                 protocolVersion: result["protocolVersion"]?.stringValue,

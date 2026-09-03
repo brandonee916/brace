@@ -1,0 +1,5 @@
+# Build output — rebuild it with ./build.sh
+build/
+
+# macOS
+.DS_Store

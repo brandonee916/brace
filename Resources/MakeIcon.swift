@@ -24,7 +24,8 @@ enum Variant: String {
 }
 
 let outputPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "."
-let variant = Variant(rawValue: CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "bars") ?? .bars
+let variantArgument = CommandLine.arguments.count > 2 ? CommandLine.arguments[2] : "bars"
+let variant = Variant(rawValue: variantArgument) ?? .bars
 
 func color(_ red: Double, _ green: Double, _ blue: Double, _ alpha: Double = 1) -> CGColor {
     CGColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: alpha)
@@ -158,6 +159,83 @@ func write(size: Double, to url: URL) {
     let rep = NSBitmapImageRep(cgImage: context.makeImage()!)
     rep.size = NSSize(width: size, height: size)
     try! rep.representation(using: .png, properties: [:])!.write(to: url)
+}
+
+// MARK: - Social preview card
+
+/// GitHub's link preview wants a wide image, not a square one — 1280x640 is the
+/// recommended size, and it must stay under a megabyte.
+func drawSocialCard(into context: CGContext, width: Double, height: Double) {
+    let space = CGColorSpace(name: CGColorSpace.sRGB)!
+    context.drawLinearGradient(
+        CGGradient(colorsSpace: space, colors: [brightIndigo, deepIndigo] as CFArray, locations: [0, 1])!,
+        start: CGPoint(x: 0, y: height),
+        end: CGPoint(x: width, y: 0),
+        options: []
+    )
+
+    // The mark, drawn at the same proportions as the icon.
+    let markSize = height * 0.52
+    let markCentre = CGPoint(x: width * 0.215, y: height * 0.5)
+    let braceSize = markSize * 0.72
+    var braceFont = NSFont.systemFont(ofSize: braceSize, weight: .bold)
+    if let rounded = braceFont.fontDescriptor.withDesign(.rounded) {
+        braceFont = NSFont(descriptor: rounded, size: braceSize) ?? braceFont
+    }
+    let gap = markSize * 0.16
+    drawGlyph("{", font: braceFont, in: context) { ink in
+        CGPoint(x: markCentre.x - gap - ink.maxX, y: markCentre.y - ink.midY)
+    }
+    drawGlyph("}", font: braceFont, in: context) { ink in
+        CGPoint(x: markCentre.x + gap - ink.minX, y: markCentre.y - ink.midY)
+    }
+    let barHeight = markSize * 0.086
+    let spacing = markSize * 0.16
+    for (index, fill) in [white, amber, white].enumerated() {
+        let barWidth = [markSize * 0.196, markSize * 0.233, markSize * 0.159][index]
+        context.setFillColor(fill)
+        let y = markCentre.y + spacing - Double(index) * spacing
+        context.addPath(CGPath(roundedRect: CGRect(x: markCentre.x - barWidth / 2, y: y - barHeight / 2,
+                                                   width: barWidth, height: barHeight),
+                               cornerWidth: barHeight / 2, cornerHeight: barHeight / 2, transform: nil))
+        context.fillPath()
+    }
+
+    let graphics = NSGraphicsContext(cgContext: context, flipped: false)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = graphics
+
+    func draw(_ text: String, size: Double, weight: NSFont.Weight, alpha: Double, y: Double) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: size, weight: weight),
+            .foregroundColor: NSColor(cgColor: color(255, 255, 255, alpha))!,
+        ]
+        NSAttributedString(string: text, attributes: attributes)
+            .draw(at: CGPoint(x: width * 0.38, y: y))
+    }
+
+    draw("Claude MCP Manager", size: 74, weight: .semibold, alpha: 1, y: height * 0.545)
+    draw("Edit Claude Desktop's MCP servers", size: 38, weight: .regular, alpha: 0.86, y: height * 0.42)
+    draw("without counting brackets.", size: 38, weight: .regular, alpha: 0.86, y: height * 0.335)
+
+    NSGraphicsContext.restoreGraphicsState()
+}
+
+if variantArgument == "social" {
+    let width = 1280.0, height = 640.0
+    let context = CGContext(
+        data: nil, width: Int(width), height: Int(height), bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    context.setAllowsAntialiasing(true)
+    drawSocialCard(into: context, width: width, height: height)
+    let rep = NSBitmapImageRep(cgImage: context.makeImage()!)
+    rep.size = NSSize(width: width, height: height)
+    let url = URL(fileURLWithPath: outputPath)
+    try! rep.representation(using: .png, properties: [:])!.write(to: url)
+    print("wrote social preview to \(url.path)")
+    exit(0)
 }
 
 let output = URL(fileURLWithPath: outputPath)

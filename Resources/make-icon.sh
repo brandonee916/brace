@@ -12,7 +12,10 @@ swiftc -O MakeIcon.swift -o "$WORK/makeicon"
 "$WORK/makeicon" "$WORK/AppIcon.iconset" "$VARIANT"
 iconutil --convert icns "$WORK/AppIcon.iconset" --output AppIcon.icns
 
-# A plain PNG as well, for the README and GitHub's social preview.
+# A plain PNG as well, for the README.
 cp "$WORK/AppIcon.iconset/icon_512x512@2x.png" AppIcon.png
+
+# GitHub's link preview wants a wide image: 1280x640, under 1 MB.
+"$WORK/makeicon" SocialPreview.png social
 
 echo "wrote $(pwd)/AppIcon.icns and AppIcon.png"

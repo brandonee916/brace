@@ -1,5 +1,23 @@
 # Release Notes
 
+## 1.2.0 — 2026-09-03
+
+- The paste box now **shows the exact command each server would run** before you
+  add it. A config file names the program Claude launches, so a snippet copied from
+  somewhere untrustworthy can name an interpreter and hand it a script — and a
+  friendly server name tells you nothing about that. Now you see the command line.
+- It also flags the two shapes that mean "run arbitrary code": an interpreter such
+  as `sh`, `python` or `node` handed inline code with `-c` or `-e`, and anything
+  that downloads from the internet and pipes it to a shell. Ordinary servers don't
+  look like that, so the warning stays rare enough to be worth reading. The same
+  warnings appear in a server's Checks panel.
+- The project is now MIT licensed.
+
+Worth stating plainly: the app has never passed a command through a shell.
+Arguments go to the operating system as a list, so a pasted `ls; rm -rf ~` is
+treated as a filename and fails. Nothing runs when you paste or type — only when
+you press Test Connection, or after you save and Claude Desktop launches it.
+
 ## 1.1.0 — 2026-09-03
 
 - **About Claude MCP Manager**, under the app menu: the version, who made it, and

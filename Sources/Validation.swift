@@ -44,6 +44,8 @@ enum Validator {
             ))
         }
 
+        issues.append(contentsOf: safetyIssues(for: server))
+
         switch server.kind {
         case .local:
             issues.append(contentsOf: commandIssues(for: server))
@@ -138,6 +140,58 @@ enum Validator {
                 actionLabel: "Choose…"
             )]
         }
+    }
+
+    // MARK: - Safety
+
+    /// Programs whose whole purpose is to run whatever you hand them.
+    private static let interpreters: Set<String> = [
+        "sh", "bash", "zsh", "dash", "ksh", "fish", "csh", "tcsh",
+        "python", "python2", "python3", "ruby", "perl", "php", "lua",
+        "node", "deno", "bun", "osascript", "swift", "Rscript", "env",
+    ]
+
+    /// Flags that mean "the next argument is code, not a filename".
+    private static let inlineCodeFlags: Set<String> = [
+        "-c", "-e", "-E", "--eval", "-eval", "--command", "--exec", "-exec",
+    ]
+
+    /// Flags a server config should never need, because they fetch and run code.
+    private static let downloadAndRunMarkers = ["| sh", "| bash", "|sh", "|bash", "curl ", "wget "]
+
+    /// Looks for the shape of a snippet that runs arbitrary code rather than
+    /// starting a server.
+    ///
+    /// Nothing here is injection — the app never passes a command through a shell.
+    /// The risk is simpler: a config file *names the program Claude will run*, so a
+    /// snippet copied from somewhere untrustworthy can name an interpreter and hand
+    /// it a script. Real MCP servers essentially never look like this, so it's worth
+    /// saying out loud before it gets saved.
+    static func safetyIssues(for server: MCPServer) -> [Issue] {
+        guard server.kind == .local else { return [] }
+        var issues: [Issue] = []
+
+        let program = (server.command as NSString).lastPathComponent
+        let args = server.args.map(\.value).filter { !$0.isEmpty }
+
+        if interpreters.contains(program), args.contains(where: { inlineCodeFlags.contains($0) }) {
+            issues.append(Issue(
+                level: .warning,
+                message: "This doesn't start a server — it hands a block of code to \"\(program)\" to run. "
+                    + "Legitimate MCP servers don't need that. Unless you wrote this yourself, read the code below carefully before saving or testing it."
+            ))
+        }
+
+        let wholeCommand = ([server.command] + args).joined(separator: " ")
+        if downloadAndRunMarkers.contains(where: { wholeCommand.lowercased().contains($0) }) {
+            issues.append(Issue(
+                level: .warning,
+                message: "This downloads something from the internet and runs it. That is how a machine gets compromised. "
+                    + "Don't save this unless you know exactly what it fetches."
+            ))
+        }
+
+        return issues
     }
 
     /// Values that look like secrets, so the UI can mask them by default.

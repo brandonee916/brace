@@ -165,6 +165,10 @@ A failed update check is silent.
 | `Sources/HelpView.swift` | The Help window that renders it. |
 | `Resources/MakeIcon.swift` | Draws the app icon. Kept as source so the artwork is diffable and reproducible rather than an opaque binary; `Resources/make-icon.sh` regenerates it. |
 
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
 ## Tests
 
 ```bash
@@ -174,6 +178,30 @@ A failed update check is silent.
 Covers the JSON parser, the paste-import cleanup, command resolution, the model
 round-trip, the save path, and backup management. The config and backup tests run
 against a scratch copy of your real config, never the live one.
+
+## Is it safe to paste a snippet from the internet?
+
+The app never runs a command through a shell. Arguments are passed as a list
+straight to the operating system, so a pasted `"command": "ls; rm -rf ~"` is
+treated as a literal filename and simply fails — there is no `;` chaining, no glob
+expansion, no injection. Exactly three places start a process: a fixed
+`printf %s "$PATH"` to learn your shell's PATH, `<program> --version` when you open
+the **Find…** picker, and the configured command itself when you press **Test
+Connection**.
+
+The real risk isn't injection, though. A config file *names the program Claude will
+run*, so a snippet from somewhere untrustworthy can simply name an interpreter and
+hand it a script. The app guards that in two ways:
+
+- The import box **shows you the exact command line** each server would run, before
+  you add it.
+- It flags the shapes that mean "run arbitrary code" — an interpreter such as `sh`,
+  `python` or `node` handed inline code with `-c` or `-e`, or anything that
+  downloads and pipes to a shell. Real MCP servers don't look like that, so the
+  warning stays rare enough to be worth reading.
+
+Nothing is executed at import or while you type. A server only runs when you press
+Test Connection, or after you save and Claude Desktop launches it.
 
 ## Why a custom JSON parser
 

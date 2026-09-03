@@ -29,10 +29,11 @@ struct ImportSheet: View {
 
             TextEditor(text: $text)
                 .font(.system(.callout, design: .monospaced))
-                .frame(minHeight: 220)
+                .frame(minHeight: 150)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
 
-            status
+            ScrollView { status.frame(maxWidth: .infinity, alignment: .leading) }
+                .frame(maxHeight: 200)
 
             HStack {
                 Button("Paste from Clipboard") {
@@ -68,13 +69,38 @@ struct ImportSheet: View {
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
         } else if !servers.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 7) {
                 Label(
-                    "Ready to add: " + servers.map(\.name).joined(separator: ", "),
+                    servers.count == 1 ? "Ready to add one server" : "Ready to add \(servers.count) servers",
                     systemImage: "checkmark.circle.fill"
                 )
                 .foregroundStyle(.green)
                 .font(.callout)
+
+                // A config file names the program Claude will run, so show exactly
+                // what that is before it gets added rather than after.
+                ForEach(servers) { server in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(server.name)
+                            .font(.callout.weight(.medium))
+                        Text(commandLine(for: server))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                        ForEach(Validator.safetyIssues(for: server)) { issue in
+                            Label(issue.message, systemImage: "exclamationmark.shield.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
+                }
+
                 if let notes = result?.notes, !notes.isEmpty {
                     Label("Tidied up for you — \(notes.joined(separator: ", ")).", systemImage: "wand.and.sparkles")
                         .font(.caption)
@@ -85,6 +111,16 @@ struct ImportSheet: View {
         } else {
             // Keeps the dialog from resizing as you type.
             Text(" ").font(.callout)
+        }
+    }
+
+    /// What Claude would actually launch, for the preview.
+    private func commandLine(for server: MCPServer) -> String {
+        switch server.kind {
+        case .local:
+            return ([server.command] + server.args.map(\.value)).joined(separator: " ")
+        case .remote:
+            return "connects to \(server.url)"
         }
     }
 

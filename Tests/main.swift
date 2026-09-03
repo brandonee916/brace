@@ -689,6 +689,24 @@ func updateSuite() {
     check("plain version untouched", UpdateChecker.normalise("1.2.3") == "1.2.3")
     check("tag compares against a plain version", UpdateChecker.isNewer("v1.0.3", than: "1.0.2"))
 
+    // Only the releases newer than what you're running, newest first.
+    let published = ["1.2.2", "1.2.1", "1.2.0", "1.1.0", "1.0.2", "1.0.1", "1.0.0"]
+    func shown(runningOn current: String) -> [String] {
+        published.filter { UpdateChecker.isNewer($0, than: current) }
+    }
+    check("on 1.0.0 you see every later release",
+          shown(runningOn: "1.0.0") == ["1.2.2", "1.2.1", "1.2.0", "1.1.0", "1.0.2", "1.0.1"],
+          shown(runningOn: "1.0.0").joined(separator: ", "))
+    check("on 1.2.0 you see only what came after",
+          shown(runningOn: "1.2.0") == ["1.2.2", "1.2.1"],
+          shown(runningOn: "1.2.0").joined(separator: ", "))
+    check("on 1.1.0 you see the 1.2 line only",
+          shown(runningOn: "1.1.0") == ["1.2.2", "1.2.1", "1.2.0"],
+          shown(runningOn: "1.1.0").joined(separator: ", "))
+    check("on the newest you see nothing", shown(runningOn: "1.2.2").isEmpty)
+    check("ahead of the newest you see nothing", shown(runningOn: "2.0.0").isEmpty)
+    check("your own version is never included", !shown(runningOn: "1.1.0").contains("1.1.0"))
+
     check("repository url", UpdateChecker.repositoryURL.absoluteString
           == "https://github.com/brandonee916/claude-mcp-manager")
 
@@ -697,6 +715,18 @@ func updateSuite() {
     - A fix for the thing
     - Another **change**
     """)
+    // A release body starts with its own version heading; the sheet shows the
+    // version already, so that first heading is dropped.
+    let body = HelpDocument.parse("""
+    ## 1.2.2 — 2026-09-03
+
+    - A change
+    """)
+    check("a release body starts with its version heading", {
+        if case .heading(_, _, let plain)? = body.blocks.first { return plain.hasPrefix("1.2.2") }
+        return false
+    }())
+
     check("release notes parse as markdown", notes.blocks.contains {
         if case .bullets(let items) = $0 { return items.count == 2 }
         return false

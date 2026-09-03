@@ -38,8 +38,8 @@ struct ContentView: View {
         .sheet(isPresented: $showsBackups) { BackupsSheet(store: store) }
         .sheet(isPresented: $showsRegistry) { RegistrySheet(store: store) }
         .sheet(isPresented: $showsReleaseNotes) {
-            if let release = updates.available {
-                ReleaseNotesSheet(release: release)
+            if !updates.missed.isEmpty {
+                ReleaseNotesSheet(releases: updates.missed)
             }
         }
         .alert("Remove \(pendingDelete?.name ?? "this server")?", isPresented: .constant(pendingDelete != nil)) {

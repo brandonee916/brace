@@ -1,5 +1,14 @@
 # Release Notes
 
+## 1.3.0 — 2026-09-03
+
+- **What's new** now shows every release you skipped, not just the newest one. On
+  1.0.0 you get all six releases since; on 1.2.0 you get only the two after it.
+  Each version is its own section, newest first, with its date.
+- The duplicated version heading in those notes is gone. Release notes come from
+  the changelog, where each entry already starts with its own version heading, and
+  the sheet prints the version above it.
+
 ## 1.2.2 — 2026-09-03
 
 - Screenshots in the README, so the project page shows what the app looks like.

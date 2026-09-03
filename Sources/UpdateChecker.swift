@@ -36,8 +36,12 @@ enum UpdateChecker {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
     }
 
-    static func latestRelease() async throws -> Release {
-        let url = URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!
+    /// Every published release, newest first.
+    ///
+    /// The whole list rather than just the newest: someone three versions behind
+    /// should see everything they missed, not only the most recent entry.
+    static func releases(limit: Int = 30) async throws -> [Release] {
+        let url = URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=\(limit)")!
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
 
@@ -50,18 +54,28 @@ enum UpdateChecker {
                 throw UpdateError.unavailable("GitHub returned HTTP \(code).")
             }
             let body = try JSONValue.parse(String(decoding: data, as: UTF8.self))
-            guard let tag = body["tag_name"]?.stringValue else {
-                throw UpdateError.unavailable("the reply had no release tag.")
+            guard let entries = body.arrayValues else {
+                throw UpdateError.unavailable("the reply wasn't a list of releases.")
             }
+
             let formatter = ISO8601DateFormatter()
-            return Release(
-                version: normalise(tag),
-                title: body["name"]?.stringValue ?? tag,
-                notes: body["body"]?.stringValue ?? "",
-                pageURL: body["html_url"]?.stringValue.flatMap(URL.init(string:))
-                    ?? repositoryURL.appendingPathComponent("releases"),
-                publishedAt: body["published_at"]?.stringValue.flatMap(formatter.date(from:))
-            )
+            let releases: [Release] = entries.compactMap { entry in
+                guard let tag = entry["tag_name"]?.stringValue else { return nil }
+                // Drafts never appear unauthenticated; pre-releases are skipped so
+                // this matches what "latest" would have offered.
+                if entry["prerelease"]?.boolValue == true { return nil }
+                if entry["draft"]?.boolValue == true { return nil }
+                return Release(
+                    version: normalise(tag),
+                    title: entry["name"]?.stringValue ?? tag,
+                    notes: entry["body"]?.stringValue ?? "",
+                    pageURL: entry["html_url"]?.stringValue.flatMap(URL.init(string:))
+                        ?? repositoryURL.appendingPathComponent("releases"),
+                    publishedAt: entry["published_at"]?.stringValue.flatMap(formatter.date(from:))
+                )
+            }
+            guard !releases.isEmpty else { throw UpdateError.notPublic }
+            return releases.sorted { isNewer($0.version, than: $1.version) }
         } catch let error as UpdateError {
             throw error
         } catch {
@@ -92,7 +106,11 @@ enum UpdateChecker {
 /// Owns the once-a-day check and whatever it found.
 @MainActor
 final class UpdateModel: ObservableObject {
+    /// The newest release, when it is newer than what's running.
     @Published var available: Release?
+    /// Everything newer than the running version, newest first — so the notes can
+    /// cover every version that was skipped, not just the last one.
+    @Published var missed: [Release] = []
     @Published var isChecking = false
     @Published var lastError: String?
     /// Set only by an explicit check, so the About window can say "you're current".
@@ -125,12 +143,15 @@ final class UpdateModel: ObservableObject {
         defer { isChecking = false }
 
         do {
-            let release = try await UpdateChecker.latestRelease()
-            if UpdateChecker.isNewer(release.version, than: currentVersion) {
-                available = release
+            let releases = try await UpdateChecker.releases()
+            let newer = releases.filter { UpdateChecker.isNewer($0.version, than: currentVersion) }
+            if let newest = newer.first {
+                available = newest
+                missed = newer
                 return true
             }
             available = nil
+            missed = []
             confirmedUpToDate = true
             return false
         } catch {

@@ -51,8 +51,8 @@ struct AboutView: View {
         .fixedSize()
         .task { await updates.checkInBackgroundIfDue() }
         .sheet(isPresented: $showsNotes) {
-            if let release = updates.available {
-                ReleaseNotesSheet(release: release)
+            if !updates.missed.isEmpty {
+                ReleaseNotesSheet(releases: updates.missed)
             }
         }
     }
@@ -95,26 +95,57 @@ struct AboutView: View {
     }
 }
 
-/// Shows a release's notes, rendered with the same Markdown parser as the guide.
+/// Shows what changed since the running version, rendered with the same Markdown
+/// parser as the guide.
+///
+/// Every release that was skipped, not only the newest one — someone three
+/// versions behind should see all of it.
 struct ReleaseNotesSheet: View {
-    let release: Release
+    let releases: [Release]
     @Environment(\.dismiss) private var dismiss
+
+    init(releases: [Release]) {
+        self.releases = releases
+    }
+
+    init(release: Release) {
+        self.releases = [release]
+    }
+
+    private var newest: Release? { releases.first }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("What's new in \(release.version)")
+                Text(heading)
                     .font(.title3.weight(.semibold))
-                if let date = release.publishedAt {
-                    Text(date.formatted(date: .abbreviated, time: .omitted))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(subheading)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             ScrollView {
-                MarkdownText(release.notes)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(Array(releases.enumerated()), id: \.offset) { index, release in
+                        VStack(alignment: .leading, spacing: 7) {
+                            if releases.count > 1 {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Text(release.version)
+                                        .font(.headline)
+                                    if let date = release.publishedAt {
+                                        Text(date.formatted(date: .abbreviated, time: .omitted))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            MarkdownText(release.notes, droppingHeadingFor: releases.count > 1 ? release.version : nil)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        if index < releases.count - 1 { Divider() }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(minHeight: 220)
 
@@ -125,12 +156,29 @@ struct ReleaseNotesSheet: View {
                 Spacer()
                 Button("Close") { dismiss() }
                     .keyboardShortcut(.cancelAction)
-                Link("Open Download Page", destination: release.pageURL)
-                    .buttonStyle(.borderedProminent)
+                if let newest {
+                    Link("Open Download Page", destination: newest.pageURL)
+                        .buttonStyle(.borderedProminent)
+                }
             }
         }
         .padding(20)
-        .frame(width: 560, height: 420)
+        .frame(width: 580, height: 460)
+    }
+
+    private var heading: String {
+        guard let newest else { return "What's new" }
+        return releases.count > 1
+            ? "What's new since \(UpdateChecker.currentVersion)"
+            : "What's new in \(newest.version)"
+    }
+
+    private var subheading: String {
+        guard let newest else { return "" }
+        if releases.count > 1 {
+            return "\(releases.count) releases, up to \(newest.version)"
+        }
+        return newest.publishedAt.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? ""
     }
 }
 
@@ -138,8 +186,17 @@ struct ReleaseNotesSheet: View {
 private struct MarkdownText: View {
     let document: HelpDocument
 
-    init(_ markdown: String) {
-        document = HelpDocument.parse(markdown)
+    /// `droppingHeadingFor` removes a leading heading that just repeats the
+    /// version — release notes come from the changelog, where each section starts
+    /// with its own version heading, and the sheet already shows that above.
+    init(_ markdown: String, droppingHeadingFor version: String? = nil) {
+        var parsed = HelpDocument.parse(markdown)
+        if let version,
+           case .heading(_, _, let plain)? = parsed.blocks.first,
+           plain.hasPrefix(version) {
+            parsed.blocks.removeFirst()
+        }
+        document = parsed
     }
 
     var body: some View {
@@ -147,7 +204,7 @@ private struct MarkdownText: View {
             ForEach(document.blocks) { block in
                 switch block {
                 case .heading(_, let text, _):
-                    Text(text).font(.headline).padding(.top, 4)
+                    Text(text).font(.subheadline.weight(.semibold)).padding(.top, 2)
                 case .paragraph(let text):
                     Text(text).fixedSize(horizontal: false, vertical: true)
                 case .bullets(let items):

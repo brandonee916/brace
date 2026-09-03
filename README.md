@@ -175,7 +175,7 @@ A failed update check is silent.
 | `Sources/HelpView.swift` | The Help window that renders it. |
 | `Resources/MakeIcon.swift` | Draws the app icon. Kept as source so the artwork is diffable and reproducible rather than an opaque binary; `Resources/make-icon.sh` regenerates it. |
 
-## Licence
+## License
 
 MIT — see [LICENSE](LICENSE). In short: use it, change it, ship it, commercially
 or not. Keep the copyright notice, and it comes with no warranty.

@@ -226,7 +226,7 @@ you press Test Connection, or after you save and Claude Desktop launches it.
 
 ## 1.1.0 — 2026-09-03
 
-- **About Claude MCP Manager**, under the app menu: the version, who made it, and
+- **About Brace**, under the app menu: the version, who made it, and
   links to the source and to Brandon's GitHub.
 - **Update checking.** Once a day at launch the app asks GitHub whether there's a
   newer release. If there is, the status bar says so, and *See What's New* shows

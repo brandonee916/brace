@@ -1,5 +1,7 @@
 # Claude MCP Manager
 
+<img src="Resources/AppIcon.png" alt="" width="128" align="right">
+
 A native macOS app for managing Claude Desktop's MCP servers, so you never have
 to count brackets in `claude_desktop_config.json` again.
 
@@ -156,6 +158,7 @@ registry only fills in form fields for you to review.
 | `Sources/CommandPickerSheet.swift` | Picking between installed versions of a command. |
 | `Sources/HelpDocument.swift` | Markdown parser for this guide. |
 | `Sources/HelpView.swift` | The Help window that renders it. |
+| `Resources/MakeIcon.swift` | Draws the app icon. Kept as source so the artwork is diffable and reproducible rather than an opaque binary; `Resources/make-icon.sh` regenerates it. |
 
 ## Tests
 

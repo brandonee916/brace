@@ -1,5 +1,11 @@
 # Release Notes
 
+## 1.0.2 — 2026-09-03
+
+- An app icon, so the Dock, Finder and the Applications folder stop showing a
+  blank placeholder. It's a pair of braces around three servers, with the middle
+  one selected — the config file this app edits, and the list inside it.
+
 ## 1.0.1 — 2026-09-03
 
 Fixes a bug that made **Test Connection** fail against servers that were working

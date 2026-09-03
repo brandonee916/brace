@@ -27,9 +27,17 @@ fi
 # are often iCloud-synced, and the extended attributes iCloud adds make codesign
 # refuse to sign the bundle in place.
 STAGE="$(mktemp -d)"
-# Bash 3.2 — the /bin/bash macOS ships — takes its exit status from the EXIT
-# trap, so a bare cleanup trap reports success no matter how the build died.
-trap 'rc=$?; rm -rf "$STAGE"; exit $rc' EXIT
+COMPLETED=0
+# Bash 3.2 — the /bin/bash macOS ships — reaches an EXIT trap with $? already
+# zeroed when set -u aborts the script, so the exit status alone cannot tell a
+# finished run from one that died on an unset variable. The sentinel can.
+cleanup() {
+  rc=$?
+  rm -rf "$STAGE"
+  if [ "$rc" = 0 ] && [ "$COMPLETED" != 1 ]; then rc=1; fi
+  exit $rc
+}
+trap cleanup EXIT
 BUNDLE="$STAGE/$APP_NAME.app"
 
 echo "Building $APP_NAME ${VERSION}…"
@@ -89,3 +97,5 @@ else
   echo "Open it with:  open \"$DEST_DIR/$APP_NAME.app\""
   echo "Install it to /Applications with:  ./build.sh --install"
 fi
+
+COMPLETED=1

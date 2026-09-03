@@ -5,7 +5,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+COMPLETED=0
+# Bash 3.2 — the /bin/bash macOS ships — reaches an EXIT trap with $? already
+# zeroed when set -u aborts the script, so the exit status alone cannot tell a
+# finished run from one that died on an unset variable. The sentinel can.
+cleanup() {
+  rc=$?
+  rm -rf "$WORK"
+  if [ "$rc" = 0 ] && [ "$COMPLETED" != 1 ]; then rc=1; fi
+  exit $rc
+}
+trap cleanup EXIT
 
 VARIANT="${1:-bars}"
 swiftc -O MakeIcon.swift -o "$WORK/makeicon"
@@ -19,3 +29,5 @@ cp "$WORK/AppIcon.iconset/icon_512x512@2x.png" AppIcon.png
 "$WORK/makeicon" SocialPreview.png social
 
 echo "wrote $(pwd)/AppIcon.icns and AppIcon.png"
+
+COMPLETED=1

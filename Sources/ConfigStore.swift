@@ -19,6 +19,11 @@ final class ConfigStore: ObservableObject {
     /// themselves. New servers go on the end; everything else stays put.
     private var fileOrder: [String] = []
 
+    /// The `mcpServers` section exactly as it was when we read it, so a save can
+    /// tell whether somebody else has touched the part we own.
+    private var loadedServersJSON: String = ""
+
+
     /// Where Claude Desktop keeps its configuration.
     ///
     /// `BRACE_CONFIG_DIR` redirects this, which is how the test suite
@@ -42,12 +47,17 @@ final class ConfigStore: ObservableObject {
 
     let backupDirectory: URL
 
+    /// The store the main window is using, so the app can ask about unsaved work
+    /// before it quits.
+    static weak var active: ConfigStore?
+
     /// The directory is injectable so the save path can be exercised against a
     /// scratch copy instead of the live config.
     init(directory: URL = ConfigStore.claudeSupportDirectory) {
         configURL = directory.appendingPathComponent("claude_desktop_config.json")
         disabledURL = directory.appendingPathComponent("mcp-manager-disabled.json")
         backupDirectory = directory.appendingPathComponent("MCP Manager Backups")
+        ConfigStore.active = self
     }
 
     var hasUnsavedChanges: Bool { serversSnapshot != savedSnapshot }
@@ -76,6 +86,7 @@ final class ConfigStore: ObservableObject {
                 root = parsed
                 let pairs = root["mcpServers"]?.objectPairs ?? []
                 fileOrder = pairs.map(\.key)
+                loadedServersJSON = root["mcpServers"]?.serialized() ?? ""
                 for pair in pairs {
                     enabledServers.append(MCPServer(name: pair.key, json: pair.value))
                 }
@@ -90,6 +101,7 @@ final class ConfigStore: ObservableObject {
         } else {
             root = .object([(key: "mcpServers", value: .object([]))])
             fileOrder = []
+            loadedServersJSON = ""
             lastLoadedText = ""
         }
 
@@ -117,6 +129,28 @@ final class ConfigStore: ObservableObject {
         for server in named where !seen.insert(server.name).inserted {
             statusMessage = "Can't save: two servers are both named \"\(server.name)\"."
             return false
+        }
+
+        // Claude Desktop rewrites this file on its own schedule — it stores its
+        // preferences here too. Writing our in-memory copy would quietly revert
+        // anything it changed while we were open, so re-read first and build on
+        // what's actually on disk.
+        if let currentText = try? String(contentsOf: configURL, encoding: .utf8),
+           currentText != lastLoadedText,
+           let currentRoot = try? JSONValue.parse(currentText),
+           currentRoot.objectPairs != nil {
+            let theirServers = currentRoot["mcpServers"]?.serialized() ?? ""
+            guard theirServers == loadedServersJSON else {
+                // Someone changed the servers themselves. Overwriting would lose
+                // their edit, and merging two sets of changes isn't ours to guess.
+                statusMessage = "The config file changed since you opened it — its MCP servers "
+                    + "are no longer the ones shown here. Choose Reload from Disk to pick up the "
+                    + "change, then make your edits again."
+                return false
+            }
+            // Only the parts we don't own changed, so adopt them and carry on.
+            root = currentRoot
+            fileOrder = currentRoot["mcpServers"]?.objectPairs?.map(\.key) ?? fileOrder
         }
 
         do {
@@ -151,6 +185,7 @@ final class ConfigStore: ObservableObject {
             }
 
             lastLoadedText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? lastLoadedText
+            loadedServersJSON = root["mcpServers"]?.serialized() ?? loadedServersJSON
             savedSnapshot = serversSnapshot
             let count = enabledPairs.count
             statusMessage = "Saved — \(count) server\(count == 1 ? "" : "s") active. Restart Claude Desktop to apply."

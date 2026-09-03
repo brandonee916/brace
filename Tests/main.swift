@@ -374,6 +374,68 @@ func modelSuite() {
           Validator.looksSensitive(key: "HOMEASSISTANT_TOKEN") && !Validator.looksSensitive(key: "HOME"))
 }
 
+// MARK: - The config file changing underneath us
+
+@MainActor
+func externalChangeSuite() throws {
+    func scratch() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("brace-external-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    // Claude Desktop keeps its own preferences in this file and rewrites it on its
+    // own schedule. Saving our in-memory copy would revert whatever it changed.
+    let dir = try scratch()
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let file = dir.appendingPathComponent("claude_desktop_config.json")
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"}},"preferences":{"bounce":true}}"#
+        .write(to: file, atomically: true, encoding: .utf8)
+
+    let store = ConfigStore(directory: dir)
+    store.load()
+
+    // Claude changes only its own settings while we have the file open.
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"}},"preferences":{"bounce":false,"added":"yes"}}"#
+        .write(to: file, atomically: true, encoding: .utf8)
+
+    store.servers[0].name = "renamed"
+    check("a save still succeeds when only their settings changed", store.save(), store.statusMessage ?? "")
+    let merged = try JSONValue.parse(String(contentsOf: file, encoding: .utf8))
+    check("our rename is applied", merged["mcpServers"]?["renamed"] != nil,
+          merged["mcpServers"]?.objectPairs?.map(\.key).joined(separator: ", ") ?? "")
+    check("their changed setting is kept", merged["preferences"]?["bounce"]?.boolValue == false)
+    check("their new setting is kept", merged["preferences"]?["added"]?.stringValue == "yes")
+
+    // Now the harder case: something else edits the servers themselves.
+    let conflictDir = try scratch()
+    defer { try? FileManager.default.removeItem(at: conflictDir) }
+    let conflictFile = conflictDir.appendingPathComponent("claude_desktop_config.json")
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"}}}"#
+        .write(to: conflictFile, atomically: true, encoding: .utf8)
+
+    let second = ConfigStore(directory: conflictDir)
+    second.load()
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"},"theirs":{"command":"/bin/pwd"}}}"#
+        .write(to: conflictFile, atomically: true, encoding: .utf8)
+
+    second.servers[0].name = "ours"
+    check("a save is refused when the servers changed underneath", !second.save())
+    check("and it says why", second.statusMessage?.contains("changed since you opened it") == true,
+          second.statusMessage ?? "")
+    let untouched = try JSONValue.parse(String(contentsOf: conflictFile, encoding: .utf8))
+    check("their server is still there", untouched["mcpServers"]?["theirs"] != nil)
+    check("nothing of ours was written", untouched["mcpServers"]?["ours"] == nil)
+
+    // Reloading picks up their version, and then saving works again.
+    second.load()
+    check("reloading shows their servers", second.servers.count == 2,
+          second.servers.map(\.name).joined(separator: ", "))
+    second.servers[0].command = "/bin/date"
+    check("saving works again after a reload", second.save(), second.statusMessage ?? "")
+}
+
 // MARK: - Backup management
 
 @MainActor
@@ -741,6 +803,7 @@ helpSuite()
 modelSuite()
 try MainActor.assumeIsolated { try configSuite() }
 try MainActor.assumeIsolated { try backupSuite() }
+try MainActor.assumeIsolated { try externalChangeSuite() }
 
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 if failures > 0 { exit(1) }

@@ -16,8 +16,9 @@ its newest heading, so releasing means editing one file.
 
 ## Build and run
 
-Needs Xcode Command Line Tools (`xcode-select --install`). No Xcode, no Node, no
-package manager, no network access.
+Needs **macOS 14 or later** and the Xcode Command Line Tools
+(`xcode-select --install`). No Xcode, no Node, no package manager, no network
+access.
 
 ```bash
 ./build.sh --install

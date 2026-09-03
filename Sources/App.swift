@@ -1,7 +1,9 @@
 import SwiftUI
 
 @main
-struct ClaudeMCPManagerApp: App {
+struct BraceApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()

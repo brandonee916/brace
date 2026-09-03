@@ -1,5 +1,20 @@
 # Release Notes
 
+## 2.1.0 — 2026-09-03
+
+Two ways your work could have been lost, both now closed.
+
+- **Claude Desktop rewrites this file on its own** — it keeps its own preferences
+  there and changes them while you're working. Brace held its copy from the moment
+  you opened it, so saving quietly reverted anything Claude had changed in the
+  meantime. It now re-reads the file first and builds on what's actually on disk,
+  so Claude's settings survive. If the MCP servers themselves changed underneath
+  you, it refuses to save and tells you to reload rather than guessing which
+  version you meant.
+- **Quitting with unsaved edits** discarded them without a word. It now asks
+  whether to save, discard, or stay — and if saving fails, it stays put rather
+  than quitting on top of the work.
+
 ## 2.0.0 — 2026-09-03
 
 **The app is now called Brace** — MCP Manager for Claude Desktop.

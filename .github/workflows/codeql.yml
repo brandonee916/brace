@@ -14,6 +14,10 @@ jobs:
     # Brace builds for arm64-apple-macos14.0, so it needs an Apple-silicon runner
     # with the Xcode toolchain already installed.
     runs-on: macos-15
+    # The Swift extractor builds its database while swiftc runs, so the build
+    # step takes about half an hour for a twenty-second compile. An hour leaves
+    # room for that without letting a wedged run sit for the six-hour default.
+    timeout-minutes: 60
     permissions:
       security-events: write
       contents: read
@@ -21,10 +25,10 @@ jobs:
 
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Initialise CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: swift
           # There is no Xcode project or Package.swift for autobuild to find —
@@ -35,6 +39,6 @@ jobs:
         run: ./build.sh
 
       - name: Analyse
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:swift"

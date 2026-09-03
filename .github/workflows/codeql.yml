@@ -3,8 +3,24 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - "Resources/*.png"
+      - "Resources/*.icns"
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - "Resources/*.png"
+      - "Resources/*.icns"
+  # Nothing listed above reaches the Swift the scan reads. The weekly run
+  # covers them regardless, and re-checks unchanged code against newer queries.
   schedule:
     - cron: "0 9 * * 1"
 

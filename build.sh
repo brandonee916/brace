@@ -27,10 +27,12 @@ fi
 # are often iCloud-synced, and the extended attributes iCloud adds make codesign
 # refuse to sign the bundle in place.
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
+# Bash 3.2 — the /bin/bash macOS ships — takes its exit status from the EXIT
+# trap, so a bare cleanup trap reports success no matter how the build died.
+trap 'rc=$?; rm -rf "$STAGE"; exit $rc' EXIT
 BUNDLE="$STAGE/$APP_NAME.app"
 
-echo "Building $APP_NAME $VERSION…"
+echo "Building $APP_NAME ${VERSION}…"
 mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 
 swiftc \

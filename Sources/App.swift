@@ -11,8 +11,11 @@ struct ClaudeMCPManagerApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .appInfo) {
+                OpenWindowButton(title: "About Claude MCP Manager", windowID: AboutWindow.id)
+            }
             CommandGroup(replacing: .help) {
-                OpenHelpButton(title: "Claude MCP Manager Help")
+                OpenWindowButton(title: "Claude MCP Manager Help", windowID: HelpWindow.id)
                     .keyboardShortcut("?", modifiers: .command)
             }
         }
@@ -21,7 +24,16 @@ struct ClaudeMCPManagerApp: App {
             HelpView()
         }
         .defaultSize(width: 900, height: 680)
+
+        Window("About Claude MCP Manager", id: AboutWindow.id) {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
     }
+}
+
+enum AboutWindow {
+    static let id = "about"
 }
 
 enum HelpWindow {
@@ -29,11 +41,12 @@ enum HelpWindow {
 }
 
 /// `openWindow` is only reachable from a view, so menu commands wrap it in one.
-struct OpenHelpButton: View {
+struct OpenWindowButton: View {
     let title: String
+    let windowID: String
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button(title) { openWindow(id: HelpWindow.id) }
+        Button(title) { openWindow(id: windowID) }
     }
 }

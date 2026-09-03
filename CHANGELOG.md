@@ -1,10 +1,23 @@
 # Release Notes
 
+## 1.1.0 — 2026-09-03
+
+- **About Claude MCP Manager**, under the app menu: the version, who made it, and
+  links to the source and to Brandon's GitHub.
+- **Update checking.** Once a day at launch the app asks GitHub whether there's a
+  newer release. If there is, the status bar says so, and *See What's New* shows
+  that release's notes — the same changelog entry, pulled from the release itself.
+  It never installs anything; it points you at the download page.
+  A failed check says nothing at all, so being offline never nags you. Checking by
+  hand, from the About window, does report what went wrong.
+
 ## 1.0.2 — 2026-09-03
 
 - An app icon, so the Dock, Finder and the Applications folder stop showing a
   blank placeholder. It's a pair of braces around three servers, with the middle
   one selected — the config file this app edits, and the list inside it.
+- The artwork was re-centred: the braces had been positioned by their layout box,
+  which carries the font's ascender and descender, leaving them 55px low.
 
 ## 1.0.1 — 2026-09-03
 

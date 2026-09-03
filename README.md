@@ -119,15 +119,18 @@ So the app is deliberately conservative:
 
 ## What it talks to
 
-The app is offline except for **Add from Registry…**, which calls:
+The app is offline apart from two things you can see:
 
 | Host | For |
 | --- | --- |
 | `registry.modelcontextprotocol.io` | Searching published servers |
 | `pypi.org` / `registry.npmjs.org` | Checking what version actually ships |
+| `api.github.com` | Asking once a day whether there's a newer release |
 
-Nothing is sent but the search term, and nothing is downloaded or executed — the
-registry only fills in form fields for you to review.
+Nothing is sent but the search term, and nothing is downloaded or executed. The
+registry fills in form fields for you to review; the update check tells you a
+version exists and shows its notes, then points you at the download page.
+A failed update check is silent.
 
 ## Files it touches
 
@@ -146,6 +149,8 @@ registry only fills in form fields for you to review.
 | `Sources/CommandResolver.swift` | Finds every copy of a command, with versions. |
 | `Sources/RegistryClient.swift` | Talks to the MCP registry and maps entries to servers. |
 | `Sources/ServerTester.swift` | Launches a server and completes an MCP handshake. |
+| `Sources/UpdateChecker.swift` | Asks GitHub whether there's a newer release. |
+| `Sources/AboutView.swift` | The About window and release-notes sheet. |
 | `Sources/MCPServer.swift` | The server model and its JSON mapping. |
 | `Sources/ConfigStore.swift` | Loading, saving, backups, import, disable sidecar. |
 | `Sources/Validation.swift` | The checks behind the sidebar dots. |

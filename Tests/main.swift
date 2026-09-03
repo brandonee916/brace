@@ -570,6 +570,41 @@ func registrySuite() {
     check("malformed entry rejected", RegistryClient.parse(server: try! JSONValue.parse(#"{"description":"no name"}"#)) == nil)
 }
 
+// MARK: - Update checking
+
+func updateSuite() {
+    // Version comparison has to be numeric, or 1.10 looks older than 1.9.
+    check("newer patch", UpdateChecker.isNewer("1.0.3", than: "1.0.2"))
+    check("older is not newer", !UpdateChecker.isNewer("1.0.1", than: "1.0.2"))
+    check("equal is not newer", !UpdateChecker.isNewer("1.0.2", than: "1.0.2"))
+    check("10 beats 9 numerically", UpdateChecker.isNewer("1.10.0", than: "1.9.0"))
+    check("not compared as text", !UpdateChecker.isNewer("1.9.0", than: "1.10.0"))
+    check("minor beats patch", UpdateChecker.isNewer("1.1.0", than: "1.0.9"))
+    check("major bump", UpdateChecker.isNewer("2.0.0", than: "1.99.99"))
+    check("shorter versions pad with zero", !UpdateChecker.isNewer("1.0", than: "1.0.0"))
+    check("longer version with a patch wins", UpdateChecker.isNewer("1.0.1", than: "1.0"))
+
+    // Tags carry a leading v; versions in Info.plist don't.
+    check("v prefix stripped", UpdateChecker.normalise("v1.2.3") == "1.2.3")
+    check("capital V stripped", UpdateChecker.normalise("V1.2.3") == "1.2.3")
+    check("plain version untouched", UpdateChecker.normalise("1.2.3") == "1.2.3")
+    check("tag compares against a plain version", UpdateChecker.isNewer("v1.0.3", than: "1.0.2"))
+
+    check("repository url", UpdateChecker.repositoryURL.absoluteString
+          == "https://github.com/brandonee916/claude-mcp-manager")
+
+    // Release notes are Markdown, rendered by the same parser as the guide.
+    let notes = HelpDocument.parse("""
+    - A fix for the thing
+    - Another **change**
+    """)
+    check("release notes parse as markdown", notes.blocks.contains {
+        if case .bullets(let items) = $0 { return items.count == 2 }
+        return false
+    })
+}
+
+updateSuite()
 registrySuite()
 helpSuite()
 modelSuite()

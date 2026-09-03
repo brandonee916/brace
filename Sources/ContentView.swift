@@ -8,6 +8,8 @@ struct ContentView: View {
     @State private var showsImport = false
     @State private var showsBackups = false
     @State private var showsRegistry = false
+    @State private var showsReleaseNotes = false
+    @StateObject private var updates = UpdateModel()
     @State private var showsRestartPrompt = false
     @State private var pendingDelete: MCPServer?
 
@@ -31,9 +33,15 @@ struct ContentView: View {
         }
         .toolbar { toolbarContent }
         .task { store.load() }
+        .task { await updates.checkInBackgroundIfDue() }
         .sheet(isPresented: $showsImport) { ImportSheet(store: store) }
         .sheet(isPresented: $showsBackups) { BackupsSheet(store: store) }
         .sheet(isPresented: $showsRegistry) { RegistrySheet(store: store) }
+        .sheet(isPresented: $showsReleaseNotes) {
+            if let release = updates.available {
+                ReleaseNotesSheet(release: release)
+            }
+        }
         .alert("Remove \(pendingDelete?.name ?? "this server")?", isPresented: .constant(pendingDelete != nil)) {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
             Button("Remove", role: .destructive) {
@@ -200,6 +208,16 @@ struct ContentView: View {
                 Text("· \(message)").foregroundStyle(.secondary)
             }
             Spacer()
+            // Quiet until there's genuinely something newer.
+            if let release = updates.available {
+                Button {
+                    showsReleaseNotes = true
+                } label: {
+                    Label("Version \(release.version) available", systemImage: "arrow.down.circle")
+                }
+                .controlSize(.small)
+                .help("See what changed")
+            }
             if store.hasUnsavedChanges {
                 Button("Discard") { store.load() }
                     .controlSize(.small)

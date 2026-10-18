@@ -672,6 +672,27 @@ func backupSuite() throws {
     check("switched-off servers survive the rename", migrated.servers.contains { $0.name == "off" && !$0.enabled })
     check("old backups are still listed", migrated.backupInfos().count == 1, "\(migrated.backupInfos().count)")
 
+    // A switched-off server goes back where it was, even after a reload.
+    let ordering = dir.appendingPathComponent("ordering")
+    try FileManager.default.createDirectory(at: ordering, withIntermediateDirectories: true)
+    try #"{"mcpServers":{"first":{"command":"/bin/ls"},"second":{"command":"/bin/pwd"}}}"#
+        .write(to: ordering.appendingPathComponent("claude_desktop_config.json"), atomically: true, encoding: .utf8)
+    let orderStore = ConfigStore(directory: ordering)
+    orderStore.load()
+    orderStore.servers[orderStore.servers.firstIndex { $0.name == "first" }!].enabled = false
+    _ = orderStore.save()
+    let orderReopened = ConfigStore(directory: ordering)
+    orderReopened.load()
+    orderReopened.servers[orderReopened.servers.firstIndex { $0.name == "first" }!].enabled = true
+    _ = orderReopened.save()
+    let reordered = try JSONValue.parse(String(contentsOf: ordering.appendingPathComponent("claude_desktop_config.json"),
+                                               encoding: .utf8))["mcpServers"]?.objectPairs?.map(\.key) ?? []
+    check("a re-enabled server keeps its place in the file", reordered == ["first", "second"],
+          reordered.joined(separator: ", "))
+    check("names are fitted back after their neighbour",
+          ConfigStore.mergeOrder(live: ["a", "c"], remembered: ["a", "b", "c"]) == ["a", "b", "c"]
+              && ConfigStore.mergeOrder(live: ["c"], remembered: ["b", "c"]) == ["b", "c"])
+
     // When both names exist, neither is touched.
     let both = dir.appendingPathComponent("both")
     try FileManager.default.createDirectory(at: both, withIntermediateDirectories: true)

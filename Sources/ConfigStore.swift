@@ -17,7 +17,26 @@ final class ConfigStore: ObservableObject {
     /// The sidebar sorts alphabetically for browsing, but rewriting the file in
     /// that order would reshuffle a section the user may well have arranged
     /// themselves. New servers go on the end; everything else stays put.
+    ///
+    /// Switched-off servers keep their place in this list too, and the sidecar
+    /// records it, so turning one back on puts it where it was instead of last.
     private var fileOrder: [String] = []
+
+    /// Fits remembered names back between the ones on disk: each goes straight
+    /// after the nearest name before it that is still there. `live` is never
+    /// reordered, since that is the file as it stands.
+    nonisolated static func mergeOrder(live: [String], remembered: [String]) -> [String] {
+        var result = live
+        for (index, name) in remembered.enumerated() where !result.contains(name) {
+            if let anchor = remembered[..<index].last(where: { result.contains($0) }),
+               let position = result.firstIndex(of: anchor) {
+                result.insert(name, at: position + 1)
+            } else {
+                result.insert(name, at: 0)
+            }
+        }
+        return result
+    }
 
     /// The `mcpServers` section exactly as it was when we read it, so a save can
     /// tell whether somebody else has touched the part we own.
@@ -172,6 +191,11 @@ final class ConfigStore: ObservableObject {
                 server.enabled = false
                 disabledServers.append(server)
             }
+            let disabledNames = Set(disabledServers.map(\.name))
+            let remembered = (parsed["order"]?.arrayValues ?? []).compactMap(\.stringValue)
+            fileOrder = Self.mergeOrder(live: fileOrder, remembered: remembered.filter {
+                disabledNames.contains($0) || fileOrder.contains($0)
+            })
         }
 
         if !manager.fileExists(atPath: disabledURL.path) { loadedDisabledJSON = "" }
@@ -236,7 +260,8 @@ final class ConfigStore: ObservableObject {
                 }
                 // Only the parts we don't own changed, so adopt them and carry on.
                 root = currentRoot
-                fileOrder = currentRoot["mcpServers"]?.objectPairs?.map(\.key) ?? fileOrder
+                fileOrder = Self.mergeOrder(
+                    live: currentRoot["mcpServers"]?.objectPairs?.map(\.key) ?? [], remembered: fileOrder)
             }
         }
 
@@ -255,9 +280,8 @@ final class ConfigStore: ObservableObject {
         do {
             try backupCurrentConfig()
 
-            let enabled = named.filter(\.enabled)
-            let positions = Dictionary(uniqueKeysWithValues: fileOrder.enumerated().map { ($1, $0) })
-            let enabledPairs = enabled
+            let positions = Dictionary(fileOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+            let ordered = named
                 .enumerated()
                 .sorted { left, right in
                     // Known servers keep their place; new ones follow, in the
@@ -266,12 +290,14 @@ final class ConfigStore: ObservableObject {
                     let b = positions[right.element.name] ?? (fileOrder.count + right.offset)
                     return a < b
                 }
-                .map { (key: $0.element.name, value: $0.element.jsonValue) }
+                .map(\.element)
+            let enabledPairs = ordered.filter(\.enabled)
+                .map { (key: $0.name, value: $0.jsonValue) }
 
             // The sidecar is written first. If the second write fails, a disabled
             // server exists in both files rather than in neither — duplicated is
             // recoverable, lost is not.
-            let disabledPairs = named.filter { !$0.enabled }
+            let disabledPairs = ordered.filter { !$0.enabled }
                 .map { (key: $0.name, value: $0.jsonValue) }
             if disabledPairs.isEmpty {
                 if manager.fileExists(atPath: disabledURL.path) {
@@ -281,13 +307,14 @@ final class ConfigStore: ObservableObject {
                 let sidecar = JSONValue.object([
                     (key: "_comment", value: .string("Servers turned off in Brace. Claude Desktop never reads this file.")),
                     (key: "mcpServers", value: .object(disabledPairs)),
+                    (key: "order", value: .array(ordered.map { .string($0.name) })),
                 ])
                 try writeAtomically(sidecar.serialized() + "\n", to: disabledURL)
             }
             loadedDisabledJSON = JSONValue.object(disabledPairs).serialized()
 
             root["mcpServers"] = .object(enabledPairs)
-            fileOrder = enabledPairs.map(\.key)
+            fileOrder = ordered.map(\.name)
             try writeAtomically(root.serialized() + "\n", to: configURL)
 
             lastLoadedText = (try? String(contentsOf: configURL, encoding: .utf8)) ?? lastLoadedText

@@ -21,6 +21,12 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      # The resolver tests expect uvx to be installed, as it is on a dev Mac
+      # set up for Python MCP servers. Homebrew puts it in /opt/homebrew/bin,
+      # one of the folders CommandResolver searches.
+      - name: Install uv
+        run: brew install uv
+
       # The config suite skips itself here: there is no Claude Desktop config
       # on the runner, and the rest of the suite uses scratch directories.
       - name: Run the test suite

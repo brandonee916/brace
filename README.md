@@ -12,7 +12,9 @@ This file is also the app's built-in guide: the app renders it directly, so ther
 only one copy to keep current. Open it from the **?** button in the toolbar, from
 **Help → Brace Help**, or with **⌘?**. `CHANGELOG.md` appears there
 too, under **Release Notes** — and `build.sh` reads the app's version number out of
-its newest heading, so releasing means editing one file.
+its newest heading, so releasing means editing one file. To ship it, run the
+**Release** workflow from the repository's Actions tab: it publishes that section as
+the `v<version>` release, which is what the app's update check looks for.
 
 ## Build and run
 

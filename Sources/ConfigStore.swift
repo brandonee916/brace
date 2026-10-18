@@ -63,10 +63,33 @@ final class ConfigStore: ObservableObject {
         // it with a regular file and leave the real config untouched.
         configURL = directory.appendingPathComponent("claude_desktop_config.json")
             .resolvingSymlinksInPath()
-        disabledURL = directory.appendingPathComponent("mcp-manager-disabled.json")
+        ConfigStore.migrateLegacyNames(in: directory)
+        disabledURL = directory.appendingPathComponent("brace-disabled.json")
             .resolvingSymlinksInPath()
-        backupDirectory = directory.appendingPathComponent("MCP Manager Backups")
+        backupDirectory = directory.appendingPathComponent("Brace Backups")
         ConfigStore.active = self
+    }
+
+    /// The app used to be MCP Manager, and its files still carried that name.
+    /// Move them across rather than starting fresh: the sidecar is the only copy
+    /// of every switched-off server. Only when the new name is free, so nothing
+    /// is ever overwritten; if both exist, the old one is left where it is.
+    /// Moving the path itself keeps a symlinked sidecar pointing where it did.
+    nonisolated static func migrateLegacyNames(in directory: URL) {
+        let manager = FileManager.default
+        let renames = [
+            ("mcp-manager-disabled.json", "brace-disabled.json"),
+            ("MCP Manager Backups", "Brace Backups"),
+        ]
+        for (old, new) in renames {
+            let from = directory.appendingPathComponent(old)
+            let to = directory.appendingPathComponent(new)
+            // attributesOfItem doesn't follow links, so a dangling one still counts.
+            guard (try? manager.attributesOfItem(atPath: from.path)) != nil,
+                  (try? manager.attributesOfItem(atPath: to.path)) == nil
+            else { continue }
+            try? manager.moveItem(at: from, to: to)
+        }
     }
 
     var hasUnsavedChanges: Bool { serversSnapshot != savedSnapshot }
@@ -339,7 +362,7 @@ final class ConfigStore: ObservableObject {
         // Switched-off servers live only in the sidecar, so back that up too or
         // they have no recovery path at all.
         if let sidecar = try? Data(contentsOf: disabledURL) {
-            let name = "mcp-manager-disabled \(stamp)\(suffix == 1 ? "" : " (\(suffix))").json"
+            let name = "brace-disabled \(stamp)\(suffix == 1 ? "" : " (\(suffix))").json"
             try? sidecar.write(to: backupDirectory.appendingPathComponent(name), options: .atomic)
         }
         pruneBackups(keeping: backupRetention)
@@ -381,6 +404,7 @@ final class ConfigStore: ObservableObject {
         let name = url.deletingPathExtension().lastPathComponent
         var stamp = name
             .replacingOccurrences(of: "claude_desktop_config ", with: "")
+            .replacingOccurrences(of: "brace-disabled ", with: "")
             .replacingOccurrences(of: "mcp-manager-disabled ", with: "")
 
         var sequence = 1

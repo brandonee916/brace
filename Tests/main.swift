@@ -426,7 +426,7 @@ func auditSuite() throws {
     // The sidecar is written first, so a failure duplicates rather than loses.
     let stranded = try dir("stranded", #"{"mcpServers":{"keeper":{"command":"/bin/ls","env":{"T":"secret"}}}}"#)
     try FileManager.default.createDirectory(
-        at: stranded.appendingPathComponent("mcp-manager-disabled.json"), withIntermediateDirectories: true)
+        at: stranded.appendingPathComponent("brace-disabled.json"), withIntermediateDirectories: true)
     let strandedStore = ConfigStore(directory: stranded)
     strandedStore.load()
     strandedStore.servers[0].enabled = false
@@ -652,6 +652,36 @@ func backupSuite() throws {
     check("restore brings the old args back", store.servers[0].args.first?.value == "final",
           store.servers[0].args.first?.value ?? "nil")
     check("restore backs up the current file first", store.backupInfos().count >= 3)
+
+    // Files from before the rename to Brace are carried over, not abandoned.
+    let legacy = dir.appendingPathComponent("legacy")
+    try FileManager.default.createDirectory(at: legacy.appendingPathComponent("MCP Manager Backups"),
+                                            withIntermediateDirectories: true)
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"}}}"#
+        .write(to: legacy.appendingPathComponent("claude_desktop_config.json"), atomically: true, encoding: .utf8)
+    try #"{"mcpServers":{"off":{"command":"/bin/pwd"}}}"#
+        .write(to: legacy.appendingPathComponent("mcp-manager-disabled.json"), atomically: true, encoding: .utf8)
+    try #"{"mcpServers":{"a":{"command":"/bin/ls"}}}"#
+        .write(to: legacy.appendingPathComponent("MCP Manager Backups/claude_desktop_config 2020-01-01 000000.json"),
+               atomically: true, encoding: .utf8)
+    let migrated = ConfigStore(directory: legacy)
+    migrated.load()
+    check("the old sidecar moves to the new name",
+          migrated.disabledURL.lastPathComponent == "brace-disabled.json"
+              && !FileManager.default.fileExists(atPath: legacy.appendingPathComponent("mcp-manager-disabled.json").path))
+    check("switched-off servers survive the rename", migrated.servers.contains { $0.name == "off" && !$0.enabled })
+    check("old backups are still listed", migrated.backupInfos().count == 1, "\(migrated.backupInfos().count)")
+
+    // When both names exist, neither is touched.
+    let both = dir.appendingPathComponent("both")
+    try FileManager.default.createDirectory(at: both, withIntermediateDirectories: true)
+    try "old".write(to: both.appendingPathComponent("mcp-manager-disabled.json"), atomically: true, encoding: .utf8)
+    try "new".write(to: both.appendingPathComponent("brace-disabled.json"), atomically: true, encoding: .utf8)
+    ConfigStore.migrateLegacyNames(in: both)
+    check("an existing new sidecar is not overwritten",
+          (try? String(contentsOf: both.appendingPathComponent("brace-disabled.json"), encoding: .utf8)) == "new")
+    check("the old sidecar is left in place",
+          FileManager.default.fileExists(atPath: both.appendingPathComponent("mcp-manager-disabled.json").path))
 }
 
 // MARK: - Registry parsing and mapping

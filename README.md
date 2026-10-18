@@ -133,7 +133,7 @@ So the app is deliberately conservative:
   written back byte-for-byte, in its original order.
 - **Keys it doesn't recognize are preserved**, both at the top level and inside a
   server, so a field a future Claude Desktop version adds is never dropped.
-- **A timestamped backup** goes into `MCP Manager Backups/` before every save.
+- **A timestamped backup** goes into `Brace Backups/` before every save.
   **Manage Backups…** in the ••• menu lists them with their date, size and which
   servers each one holds, marks the one matching your current config, and lets you
   restore, delete individually, or delete the lot. Retention is yours to set —
@@ -162,8 +162,12 @@ A failed update check is silent.
 | Path (under `~/Library/Application Support/Claude/`) | Role |
 | --- | --- |
 | `claude_desktop_config.json` | Your real config. Only `mcpServers` is rewritten. |
-| `mcp-manager-disabled.json` | Servers you switched off. Claude Desktop never reads this. |
-| `MCP Manager Backups/` | Timestamped copies from before each save. |
+| `brace-disabled.json` | Servers you switched off. Claude Desktop never reads this. |
+| `Brace Backups/` | Timestamped copies from before each save. |
+
+Versions before the rename used `mcp-manager-disabled.json` and `MCP Manager Backups/`.
+The app moves those to the new names the first time it opens, unless a file with
+the new name is already there.
 
 ## Source layout
 

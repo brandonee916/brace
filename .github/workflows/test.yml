@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run test.sh
+    # Same Apple-silicon runner as the CodeQL scan: the sources target
+    # arm64-apple-macos14.0 and need the Xcode toolchain.
+    runs-on: macos-15
+    # The suite compiles in under a minute; this only stops a wedged run.
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      # The resolver tests expect uvx to be installed, as it is on a dev Mac
+      # set up for Python MCP servers. Homebrew puts it in /opt/homebrew/bin,
+      # one of the folders CommandResolver searches.
+      - name: Install uv
+        run: brew install uv
+
+      # The config suite skips itself here: there is no Claude Desktop config
+      # on the runner, and the rest of the suite uses scratch directories.
+      - name: Run the test suite
+        run: ./test.sh

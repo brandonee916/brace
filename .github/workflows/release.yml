@@ -1,0 +1,45 @@
+name: Release
+
+# Run by hand once the newest CHANGELOG.md section is ready to ship. The app's
+# update check reads these releases, so a version only reaches people once this
+# has run for it.
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publish the newest changelog section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The same rule build.sh uses, so the release matches the app's version.
+          version="$(sed -n 's/^## \([0-9][0-9.]*\).*/\1/p' CHANGELOG.md | head -1)"
+          if [ -z "$version" ]; then
+            echo "::error::No version heading found in CHANGELOG.md."
+            exit 1
+          fi
+          tag="v$version"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::$tag is already released. Add a new CHANGELOG.md section first."
+            exit 1
+          fi
+
+          # The section under the newest heading, up to the next one, with the
+          # blank lines around it trimmed. These are the notes the app shows.
+          awk 'f && /^## /{exit} f{print} /^## /{f=1}' CHANGELOG.md \
+            | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}' > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::The $version section of CHANGELOG.md is empty."
+            exit 1
+          fi
+
+          gh release create "$tag" --target "$GITHUB_SHA" --title "Brace $version" --notes-file notes.md

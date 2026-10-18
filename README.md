@@ -142,7 +142,7 @@ So the app is deliberately conservative:
 
 ## What it talks to
 
-The app is offline apart from two things you can see:
+The app is offline apart from three things you can see:
 
 | Host | For |
 | --- | --- |

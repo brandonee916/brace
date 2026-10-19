@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths-ignore:
       - "**/*.md"
+      - "**/*.txt"
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
@@ -14,6 +15,7 @@ on:
     branches: [main]
     paths-ignore:
       - "**/*.md"
+      - "**/*.txt"
       - "docs/**"
       - "LICENSE"
       - ".gitignore"
@@ -30,10 +32,11 @@ jobs:
     # Brace builds for arm64-apple-macos14.0, so it needs an Apple-silicon runner
     # with the Xcode toolchain already installed.
     runs-on: macos-15
-    # The Swift extractor builds its database while swiftc runs, so the build
-    # step takes about half an hour for a twenty-second compile. An hour leaves
-    # room for that without letting a wedged run sit for the six-hour default.
-    timeout-minutes: 60
+    # The Swift extractor builds its database while swiftc runs, so the compile
+    # step takes about eight minutes for what is a twenty-second build. Half an
+    # hour leaves room for that without letting a wedged run sit for the
+    # six-hour default.
+    timeout-minutes: 30
     permissions:
       security-events: write
       contents: read
@@ -48,7 +51,7 @@ jobs:
         with:
           languages: swift
           # There is no Xcode project or Package.swift for autobuild to find —
-          # the app is compiled by build.sh calling swiftc directly.
+          # the app is compiled by calling swiftc directly.
           build-mode: manual
 
       # CodeQL reads the Swift as it compiles, so the app bundle build.sh makes

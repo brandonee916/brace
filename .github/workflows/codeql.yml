@@ -51,8 +51,19 @@ jobs:
           # the app is compiled by build.sh calling swiftc directly.
           build-mode: manual
 
-      - name: Build Brace
-        run: ./build.sh
+      # CodeQL reads the Swift as it compiles, so the app bundle build.sh makes
+      # is not needed. Without -O, swiftc splits the sources across parallel
+      # compiler jobs instead of one whole-module job, and the extractor runs
+      # in each of them rather than in a single long one.
+      - name: Compile the Swift sources
+        run: |
+          swiftc \
+            -parse-as-library \
+            -Onone \
+            -j3 \
+            -target arm64-apple-macos14.0 \
+            -o "$RUNNER_TEMP/Brace" \
+            Sources/*.swift
 
       - name: Analyse
         uses: github/codeql-action/analyze@v4

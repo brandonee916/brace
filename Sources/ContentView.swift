@@ -37,8 +37,13 @@ struct ContentView: View {
                     bottomBar { statusBar }
                         .background(.bar)
                 }
+                .overlay(alignment: .top) { titleBarBackground }
         }
         .toolbar { toolbarContent }
+        // The window's own toolbar background starts a couple of points left of
+        // the split divider on macOS 27, so the "Brace" title sat on a bar that
+        // overhung the sidebar. The detail column draws its own instead.
+        .toolbarBackground(.hidden, for: .windowToolbar)
         .task { store.loadIfNeeded() }
         .task { await updates.checkInBackgroundIfDue() }
         .sheet(isPresented: $showsImport) { ImportSheet(store: store) }
@@ -121,6 +126,22 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// The bar behind the title and toolbar buttons, sized to the detail column so
+    /// its left edge meets the split divider exactly. It also keeps scrolled
+    /// content from showing through under the title.
+    private var titleBarBackground: some View {
+        GeometryReader { proxy in
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(.bar)
+                    .frame(height: proxy.safeAreaInsets.top)
+                Divider()
+            }
+            .ignoresSafeArea(edges: .top)
+        }
+        .allowsHitTesting(false)
     }
 
     /// A divider over a fixed-height row, used at the bottom of both columns.

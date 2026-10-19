@@ -121,7 +121,6 @@ struct ContentView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-        .controlSize(.small)
     }
 
     /// A divider over a fixed-height row, used at the bottom of both columns.

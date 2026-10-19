@@ -1,5 +1,24 @@
 # Release Notes
 
+## 2.5.0 — 2026-10-19
+
+**Safari's built-in MCP server can be added in one click.**
+
+Safari 27 ships Apple's own MCP server inside `safaridriver`. It isn't a package,
+so it was never in the MCP registry, and searching for "safari" only turned up
+community projects. **Add from Registry…** now lists it first, under **On this
+Mac**.
+
+- **It checks the real thing.** `/usr/bin/safaridriver` exists on every Mac, but
+  only Safari 27 and later understand `--mcp`, so the app asks the program itself
+  before offering it. Safari Technology Preview's copy is used when Safari isn't
+  new enough.
+- **It knows when you're already set up.** If your config already runs it, the
+  sheet says so rather than adding a second copy.
+- **It tells you what the config can't.** The server refuses every request until
+  developer features, remote automation and external agents are switched on in
+  Safari's settings, so those steps are listed beside the entry.
+
 ## 2.4.0 — 2026-09-03
 
 **Test Connection now tells you when a server can't reach what it talks to.**

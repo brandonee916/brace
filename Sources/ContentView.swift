@@ -20,16 +20,23 @@ struct ContentView: View {
         return store.servers.firstIndex { $0.id == selection }
     }
 
+    /// Both bottom bars share this height so their top edges line up across the
+    /// split. The status bar used to sit under the whole split view instead, which
+    /// cut the sidebar short and stacked two bars on the left against one on the
+    /// right — more visible since macOS 27 draws the sidebar as a floating panel.
+    private static let bottomBarHeight: CGFloat = 36
+
     var body: some View {
-        VStack(spacing: 0) {
-            NavigationSplitView {
-                sidebar
-                    .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 400)
-            } detail: {
-                detail
-            }
-            Divider()
-            statusBar
+        NavigationSplitView {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 250, ideal: 290, max: 400)
+        } detail: {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    bottomBar { statusBar }
+                        .background(.bar)
+                }
         }
         .toolbar { toolbarContent }
         .task { store.loadIfNeeded() }
@@ -65,54 +72,64 @@ struct ContentView: View {
     // MARK: - Sidebar
 
     private var sidebar: some View {
+        List(selection: $selection) {
+            ForEach($store.servers) { $server in
+                ServerRow(server: server, issues: Validator.issues(for: server, allNames: allNames))
+                    .tag(server.id)
+                    .contextMenu {
+                        Button(server.enabled ? "Disable" : "Enable") { server.enabled.toggle() }
+                        Button("Duplicate") { duplicate(server) }
+                        Button("Copy as JSON") { copyJSON(for: server) }
+                        Divider()
+                        Button("Remove…", role: .destructive) { pendingDelete = server }
+                    }
+            }
+        }
+        .listStyle(.sidebar)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            bottomBar { sidebarButtons }
+        }
+    }
+
+    private var sidebarButtons: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Button("Add from Registry…") { showsRegistry = true }
+                Button("Paste JSON Snippet…") { showsImport = true }
+                Divider()
+                Button("New Local Server") { addServer(kind: .local) }
+                Button("New Remote Server") { addServer(kind: .remote) }
+            } label: {
+                Label("Add", systemImage: "plus")
+            }
+            .menuStyle(.button)
+            .buttonStyle(.bordered)
+            .fixedSize()
+            .help("Add a server")
+
+            Button {
+                if let index = selectedIndex { pendingDelete = store.servers[index] }
+            } label: {
+                Label("Remove", systemImage: "minus")
+            }
+            .buttonStyle(.bordered)
+            .disabled(selectedIndex == nil)
+            .help("Remove the selected server")
+
+            Spacer(minLength: 4)
+            Text("\(store.servers.filter(\.enabled).count) active")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A divider over a fixed-height row, used at the bottom of both columns.
+    private func bottomBar<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0) {
-            List(selection: $selection) {
-                ForEach($store.servers) { $server in
-                    ServerRow(server: server, issues: Validator.issues(for: server, allNames: allNames))
-                        .tag(server.id)
-                        .contextMenu {
-                            Button(server.enabled ? "Disable" : "Enable") { server.enabled.toggle() }
-                            Button("Duplicate") { duplicate(server) }
-                            Button("Copy as JSON") { copyJSON(for: server) }
-                            Divider()
-                            Button("Remove…", role: .destructive) { pendingDelete = server }
-                        }
-                }
-            }
-            .listStyle(.sidebar)
-
             Divider()
-            HStack(spacing: 8) {
-                Menu {
-                    Button("Add from Registry…") { showsRegistry = true }
-                    Button("Paste JSON Snippet…") { showsImport = true }
-                    Divider()
-                    Button("New Local Server") { addServer(kind: .local) }
-                    Button("New Remote Server") { addServer(kind: .remote) }
-                } label: {
-                    Label("Add", systemImage: "plus")
-                }
-                .menuStyle(.button)
-                .buttonStyle(.bordered)
-                .fixedSize()
-                .help("Add a server")
-
-                Button {
-                    if let index = selectedIndex { pendingDelete = store.servers[index] }
-                } label: {
-                    Label("Remove", systemImage: "minus")
-                }
-                .buttonStyle(.bordered)
-                .disabled(selectedIndex == nil)
-                .help("Remove the selected server")
-
-                Spacer(minLength: 4)
-                Text("\(store.servers.filter(\.enabled).count) active")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            content()
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity, minHeight: Self.bottomBarHeight, maxHeight: Self.bottomBarHeight)
         }
     }
 
@@ -225,9 +242,6 @@ struct ContentView: View {
         }
         .font(.callout)
         .lineLimit(1)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(.bar)
     }
 
     // MARK: - Actions

@@ -817,6 +817,58 @@ func registrySuite() {
     check("malformed entry rejected", RegistryClient.parse(server: try! JSONValue.parse(#"{"description":"no name"}"#)) == nil)
 }
 
+// MARK: - Servers built into apps on this Mac
+
+func builtInSuite() {
+    let safari = BuiltInCatalog.safari
+    let stable = "/usr/bin/safaridriver"
+    let preview = "/Applications/Safari Technology Preview.app/Contents/MacOS/safaridriver"
+    let newHelp = "  --mcp: Run as an MCP (Model Context Protocol) server using stdio transport."
+    let oldHelp = "  -p, --port <port>  Port to listen on"
+
+    let onSafari27 = BuiltInCatalog.detect(safari, isExecutable: { $0 == stable }, helpText: { _ in newHelp })
+    check("Safari 27's safaridriver is found", onSafari27?.path == stable, onSafari27?.path ?? "nil")
+    check("and run with --mcp", onSafari27?.args == ["--mcp"])
+
+    let onOldSafari = BuiltInCatalog.detect(safari, isExecutable: { $0 == stable }, helpText: { _ in oldHelp })
+    check("an older safaridriver without --mcp isn't offered", onOldSafari == nil)
+
+    let silent = BuiltInCatalog.detect(safari, isExecutable: { $0 == stable }, helpText: { _ in nil })
+    check("a safaridriver that doesn't answer isn't offered", silent == nil)
+
+    let previewOnly = BuiltInCatalog.detect(safari, isExecutable: { $0 == preview }, helpText: { _ in nil })
+    check("Technology Preview is used when it's the only copy", previewOnly?.path == preview)
+
+    let both = BuiltInCatalog.detect(safari, isExecutable: { _ in true }, helpText: { _ in newHelp })
+    check("Safari's own copy is preferred over Technology Preview", both?.path == stable)
+
+    check("nothing found on a Mac without either",
+          BuiltInCatalog.detect(safari, isExecutable: { _ in false }, helpText: { _ in newHelp }) == nil)
+
+    check("search matches safari", BuiltInCatalog.matching("Safari").contains(safari))
+    check("search matches webkit", BuiltInCatalog.matching("webkit").contains(safari))
+    check("an empty search lists it", BuiltInCatalog.matching("").contains(safari))
+    check("an unrelated search doesn't", !BuiltInCatalog.matching("postgres").contains(safari))
+
+    // Exactly the entry people write by hand, so an existing one is recognised.
+    guard let location = onSafari27 else { return }
+    let built = MCPServer(builtIn: safari, location: location)
+    let json = built.jsonValue.serialized(pretty: false)
+    check("writes the same entry Apple documents",
+          json == #"{"command":"/usr/bin/safaridriver","args":["--mcp"]}"#, json)
+    check("named safari-mcp", built.name == "safari-mcp")
+    check("raises no safety warnings", Validator.safetyIssues(for: built).isEmpty)
+
+    let handWritten = MCPServer(name: "safari", json: try! JSONValue.parse(
+        #"{"command":"/usr/bin/safaridriver","args":["--mcp"]}"#))
+    check("an existing entry under another name is recognised",
+          BuiltInCatalog.existingEntry(for: location, in: [handWritten])?.name == "safari")
+    let webDriver = MCPServer(name: "wd", json: try! JSONValue.parse(
+        #"{"command":"/usr/bin/safaridriver","args":["--port","4444"]}"#))
+    check("safaridriver without --mcp isn't mistaken for it",
+          BuiltInCatalog.existingEntry(for: location, in: [webDriver]) == nil)
+}
+
 // MARK: - Update checking
 
 func reviewSuite() {
@@ -1176,6 +1228,7 @@ probeSuite()
 safetySuite()
 updateSuite()
 registrySuite()
+builtInSuite()
 helpSuite()
 modelSuite()
 try MainActor.assumeIsolated { try configSuite() }

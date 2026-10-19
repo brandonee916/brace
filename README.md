@@ -45,6 +45,15 @@ values are never filled in, only named and masked, so you enter them yourself.
 
 ![Searching the MCP registry, with a warning that the entry is behind the published version](docs/registry.png)
 
+**Servers already on your Mac.** Some MCP servers aren't packages at all — they
+ship inside an app. Safari 27 (and Safari Technology Preview) includes Apple's
+own Safari MCP server, run as `/usr/bin/safaridriver --mcp`. The registry has no
+entry for it, so the same sheet lists it first under **On this Mac**: the app
+checks that your `safaridriver` really supports `--mcp`, tells you if it's
+already in your config, and lists the Safari settings you have to switch on
+(developer features, remote automation, external agents), which a config entry
+can't do for you.
+
 **Add servers by pasting.** Most MCP servers document themselves as a block of
 JSON in a README. Click **Paste JSON** — the box fills itself from your clipboard
 if a snippet is already there — and the app merges it into your config. It accepts
@@ -189,6 +198,7 @@ the new name is already there.
 | `Sources/ImportSheet.swift` | Paste-a-snippet import. |
 | `Sources/BackupsSheet.swift` | The backup manager. |
 | `Sources/RegistrySheet.swift` | Searching and previewing registry entries. |
+| `Sources/BuiltInServers.swift` | Servers built into apps on this Mac, such as Safari. |
 | `Sources/TestSheet.swift` | Reporting what a test found. |
 | `Sources/CommandPickerSheet.swift` | Picking between installed versions of a command. |
 | `Sources/HelpDocument.swift` | Markdown parser for this guide. |

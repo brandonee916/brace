@@ -2,21 +2,37 @@ import AppKit
 import SwiftUI
 
 /// Search the MCP registry and add a server with its fields already laid out.
+///
+/// Servers built into apps on this Mac are listed above the registry results:
+/// they're never published there, so a search alone would never find them.
 struct RegistrySheet: View {
     @ObservedObject var store: ConfigStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var query = ""
     @State private var results: [RegistryServer] = []
-    @State private var selection: RegistryServer.ID?
+    /// A registry server's name or a built-in server's id; the two never collide.
+    @State private var selection: String?
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var hasSearched = false
     @State private var latestVersions: [String: String] = [:]
     @State private var searchTask: Task<Void, Never>?
+    /// Where each built-in server was found, by id. Absent until looked for;
+    /// looking can run a program, so it's done once, off the main thread.
+    @State private var builtInLocations: [String: BuiltInLocation?] = [:]
 
     private var selected: RegistryServer? {
         results.first { $0.id == selection }
+    }
+
+    private var selectedBuiltIn: BuiltInServer? {
+        BuiltInCatalog.all.first { $0.id == selection }
+    }
+
+    /// Filtered as you type, and all of them before you type anything.
+    private var visibleBuiltIns: [BuiltInServer] {
+        BuiltInCatalog.matching(query)
     }
 
     /// The package we'd actually install — first one with a runtime we support.
@@ -39,6 +55,7 @@ struct RegistrySheet: View {
         }
         .frame(width: 860, height: 580)
         .onDisappear { searchTask?.cancel() }
+        .task { await detectBuiltIns() }
     }
 
     // MARK: - Header
@@ -47,7 +64,7 @@ struct RegistrySheet: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Add from the MCP registry")
                 .font(.title3.weight(.semibold))
-            Text("Search the official registry and the fields get laid out for you. Entries are published by each server's author, so treat them as a starting point — you still review everything before saving.")
+            Text("Search the official registry and the fields get laid out for you. Entries are published by each server's author, so treat them as a starting point — you still review everything before saving. Servers built into apps on this Mac are listed first.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -72,7 +89,27 @@ struct RegistrySheet: View {
 
     @ViewBuilder
     private var resultsList: some View {
-        if let errorMessage {
+        if !visibleBuiltIns.isEmpty {
+            List(selection: $selection) {
+                Section("On this Mac") {
+                    ForEach(visibleBuiltIns) { server in
+                        builtInRow(server).tag(server.id)
+                    }
+                }
+                Section("Registry") {
+                    if let errorMessage {
+                        inlineMessage(errorMessage)
+                    } else if results.isEmpty {
+                        inlineMessage(hasSearched ? "No matches." : "Search to see published servers.")
+                    } else {
+                        ForEach(results) { server in
+                            registryRow(server).tag(server.id)
+                        }
+                    }
+                }
+            }
+            .listStyle(.inset)
+        } else if let errorMessage {
             centeredMessage(
                 title: "Couldn't search",
                 detail: errorMessage,
@@ -88,21 +125,54 @@ struct RegistrySheet: View {
             )
         } else {
             List(results, selection: $selection) { server in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(server.displayTitle).lineLimit(1)
-                    Text(server.summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Text(packageLabel(for: server))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .padding(.vertical, 2)
-                .tag(server.id)
+                registryRow(server).tag(server.id)
             }
             .listStyle(.inset)
         }
+    }
+
+    private func registryRow(_ server: RegistryServer) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(server.displayTitle).lineLimit(1)
+            Text(server.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Text(packageLabel(for: server))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func builtInRow(_ server: BuiltInServer) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(server.title).lineLimit(1)
+            Text(server.summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Text(builtInLabel(for: server))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func builtInLabel(for server: BuiltInServer) -> String {
+        guard let found = builtInLocations[server.id] else { return "looking…" }
+        guard let location = found else { return "not found on this Mac" }
+        if BuiltInCatalog.existingEntry(for: location, in: store.servers) != nil {
+            return "already in your config"
+        }
+        return "found · \(location.label)"
+    }
+
+    private func inlineMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func packageLabel(for server: RegistryServer) -> String {
@@ -131,7 +201,9 @@ struct RegistrySheet: View {
 
     @ViewBuilder
     private var detail: some View {
-        if let server = selected {
+        if let server = selectedBuiltIn {
+            builtInDetail(server)
+        } else if let server = selected {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -194,6 +266,93 @@ struct RegistrySheet: View {
                 detail: "Pick a result to see what it installs and which settings it needs.",
                 symbol: "sidebar.right"
             )
+        }
+    }
+
+    private func builtInDetail(_ server: BuiltInServer) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(server.title).font(.title3.weight(.semibold))
+                    Text("Built into an app on this Mac")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(server.summary)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
+                }
+
+                switch builtInLocations[server.id] {
+                case .none:
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Looking for it…").font(.caption).foregroundStyle(.secondary)
+                    }
+                case .some(.none):
+                    note(
+                        "Not found. It comes with Safari 27 or later, and with Safari Technology Preview. Update macOS or install Technology Preview, then open this sheet again.",
+                        symbol: "exclamationmark.triangle.fill",
+                        tint: .orange
+                    )
+                    if let download = server.downloadURL, let url = URL(string: download) {
+                        Link(destination: url) {
+                            Label("Get Safari Technology Preview", systemImage: "arrow.down.circle")
+                                .font(.callout)
+                        }
+                    }
+                case .some(.some(let location)):
+                    if let existing = BuiltInCatalog.existingEntry(for: location, in: store.servers) {
+                        note(
+                            "Already set up as \"\(existing.name)\" in your config. Adding it again would only give Claude a second copy.",
+                            symbol: "checkmark.circle",
+                            tint: .green
+                        )
+                    } else {
+                        note("Found the copy that comes with \(location.label).", symbol: "checkmark.circle", tint: .green)
+                    }
+                    let preview = MCPServer(builtIn: server, location: location)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Claude will run")
+                            .font(.subheadline.weight(.medium))
+                        Text(([preview.command] + preview.args.map(\.value)).joined(separator: " "))
+                            .font(.system(.caption, design: .monospaced))
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.5)))
+                    }
+                }
+
+                if !server.setupSteps.isEmpty {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Also switch on, once")
+                            .font(.subheadline.weight(.medium))
+                        ForEach(Array(server.setupSteps.enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Text("\(index + 1).").font(.caption).foregroundStyle(.secondary)
+                                Text(step)
+                                    .font(.caption)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Text("The config entry alone isn't enough: without these the server starts but turns every request away.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 1)
+                    }
+                }
+
+                if let docs = server.documentationURL, let url = URL(string: docs) {
+                    Link(destination: url) {
+                        Label("Read Apple's announcement", systemImage: "arrow.up.forward.square")
+                            .font(.callout)
+                    }
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -286,7 +445,7 @@ struct RegistrySheet: View {
 
     private var footer: some View {
         HStack {
-            Text("Source: registry.modelcontextprotocol.io")
+            Text(selectedBuiltIn != nil ? "Source: this Mac" : "Source: registry.modelcontextprotocol.io")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
             Spacer()
@@ -299,6 +458,9 @@ struct RegistrySheet: View {
     }
 
     private var canAdd: Bool {
+        if let server = selectedBuiltIn {
+            return builtInLocations[server.id].flatMap { $0 } != nil
+        }
         guard let server = selected else { return false }
         if let package = chosenPackage(for: server) { return package.isSupported }
         return server.remotes.first != nil
@@ -345,7 +507,35 @@ struct RegistrySheet: View {
         }
     }
 
+    private func detectBuiltIns() async {
+        let found = await Task.detached(priority: .userInitiated) {
+            BuiltInCatalog.all.map { ($0.id, BuiltInCatalog.detect($0)) }
+        }.value
+        for (id, location) in found {
+            builtInLocations[id] = .some(location)
+        }
+        // Nothing picked yet: a server that's here and not yet set up is the
+        // likeliest reason to have opened this sheet.
+        if selection == nil,
+           let ready = BuiltInCatalog.all.first(where: { server in
+               guard let location = builtInLocations[server.id].flatMap({ $0 }) else { return false }
+               return BuiltInCatalog.existingEntry(for: location, in: store.servers) == nil
+           }) {
+            selection = ready.id
+        }
+    }
+
     private func commit() {
+        if let server = selectedBuiltIn {
+            guard let location = builtInLocations[server.id].flatMap({ $0 }) else { return }
+            var newServer = MCPServer(builtIn: server, location: location)
+            newServer.name = store.uniqueName(from: newServer.name)
+            store.servers.append(newServer)
+            store.servers.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            store.statusMessage = "Added \(newServer.name). Save, then restart Claude Desktop — and switch on \(server.title)'s developer settings if you haven't."
+            dismiss()
+            return
+        }
         guard let server = selected else { return }
         var newServer = MCPServer(registry: server, package: chosenPackage(for: server))
         newServer.name = store.uniqueName(from: newServer.name)

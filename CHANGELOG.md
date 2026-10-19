@@ -19,6 +19,19 @@ Mac**.
   developer features, remote automation and external agents are switched on in
   Safari's settings, so those steps are listed beside the entry.
 
+Also in this release:
+
+- **A server you turn back on goes back where it was.** Turning a server off took
+  it out of the remembered order, so turning it on again put it at the end of
+  the config. Its place is kept now.
+- **Brace's own files carry its name.** `mcp-manager-disabled.json` is now
+  `brace-disabled.json` and the *MCP Manager Backups* folder is *Brace Backups*.
+  Existing files are moved the first time you open the app, only when the new
+  name is free, so nothing is overwritten.
+- **The main window's bottom bars line up.** The sidebar now reaches the bottom
+  of the window, with its Add and Remove buttons on the same line and at the same
+  height as the status bar beside it.
+
 ## 2.4.0 — 2026-09-03
 
 **Test Connection now tells you when a server can't reach what it talks to.**

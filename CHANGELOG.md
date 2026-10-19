@@ -1,5 +1,12 @@
 # Release Notes
 
+## 2.5.1 — 2026-10-19
+
+- **The title bar lines up with the sidebar again.** On macOS 27 the bar behind
+  the "Brace" title started a couple of points left of the sidebar divider and
+  left a notch where they met. The divider now runs straight from the top of the
+  window to the bottom.
+
 ## 2.5.0 — 2026-10-19
 
 **Safari's built-in MCP server can be added in one click.**
